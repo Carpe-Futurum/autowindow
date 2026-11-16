@@ -23,12 +23,12 @@ struct MenuContent: View {
         }
 
         Text("Displays: \(model.currentName)")
-        Text(model.currentLayout.map { "Saved: \($0.windows.count) windows" } ?? "No saved layout for these displays")
+        Text(model.currentLayout.map { "Layout: \($0.name) (\($0.windows.count) windows)" } ?? "No saved layout for these displays")
         Text(model.lastEvent)
 
         Divider()
 
-        Button("Save Layout Now") { model.saveNow() }
+        Button("Save Layout…") { model.saveNow() }
             .keyboardShortcut("s")
         Button("Restore Layout Now") { model.restoreNow() }
             .keyboardShortcut("r")
@@ -47,6 +47,7 @@ struct MenuContent: View {
                 ForEach(model.layouts, id: \.signature) { layout in
                     Menu("\(layout.signature == model.currentSignature ? "● " : "")\(layout.name) (\(layout.windows.count))") {
                         Text("Updated \(layout.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+                        Button("Rename…") { model.rename(layout) }
                         Button("Forget") { model.forget(layout) }
                     }
                 }

@@ -63,15 +63,37 @@ final class AppModel: ObservableObject {
 
     // MARK: - Actions
 
+    /// Asks for a name, then saves. Prefilled with the current name, so Return keeps it.
     func saveNow() {
         guard isTrusted else { return requestAccess() }
+        refreshDisplays()
+        guard let name = Self.promptForName(
+            title: "Save Layout",
+            message: "Name this layout for \(currentName).",
+            initial: currentLayout?.name ?? currentName,
+            confirm: "Save"
+        ) else { return }
         // Manual save is a full snapshot: it replaces the layout, forgetting apps not running now.
         var fresh = WindowManager.capture()
-        fresh.name = currentLayout?.name ?? fresh.name
+        fresh.name = name
         store.save(fresh)
         refreshDisplays()
         reloadLayouts()
-        lastEvent = "Saved \(fresh.windows.count) windows at \(Self.time())"
+        lastEvent = "Saved \"\(name)\" (\(fresh.windows.count) windows) at \(Self.time())"
+    }
+
+    func rename(_ layout: Layout) {
+        guard let name = Self.promptForName(
+            title: "Rename Layout",
+            message: "New name for \"\(layout.name)\".",
+            initial: layout.name,
+            confirm: "Rename"
+        ) else { return }
+        var renamed = layout
+        renamed.name = name
+        store.save(renamed)
+        reloadLayouts()
+        lastEvent = "Renamed to \"\(name)\""
     }
 
     func restoreNow() {
@@ -210,6 +232,25 @@ final class AppModel: ObservableObject {
         } catch {
             lastEvent = "Launch at login failed: \(error.localizedDescription)"
         }
+    }
+
+    /// Modal name prompt. Returns nil on Cancel; an empty entry falls back to `initial`.
+    private static func promptForName(title: String, message: String, initial: String, confirm: String) -> String? {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: confirm)
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.stringValue = initial
+        field.placeholderString = initial
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        // Menu bar apps aren't frontmost; without this the alert opens behind other windows.
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? initial : name
     }
 
     private static func time() -> String {
