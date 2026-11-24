@@ -29,6 +29,13 @@ enum Displays {
             }
     }
 
+    static func screen(forUUID uuid: String) -> NSScreen? {
+        NSScreen.screens.first { screen in
+            (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)
+                .map { uuidString(for: $0.uint32Value) == uuid } == true
+        }
+    }
+
     private static func uuidString(for id: CGDirectDisplayID) -> String {
         guard let uuid = CGDisplayCreateUUIDFromDisplayID(id)?.takeRetainedValue() else { return "id-\(id)" }
         return CFUUIDCreateString(nil, uuid) as String

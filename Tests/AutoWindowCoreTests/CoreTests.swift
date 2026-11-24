@@ -72,3 +72,93 @@ private let external = DisplaySnapshot(uuid: "B", name: "Studio Display", bounds
     #expect(LayoutStore(fileURL: url).layout(for: "A+B")?.name == "Desk")
     try FileManager.default.removeItem(at: url.deletingLastPathComponent())
 }
+
+// MARK: - Editing
+
+private func editLayout() -> Layout {
+    Layout(signature: "A+B", name: "Desk", displays: [laptop, external], windows: [
+        WindowRecord(bundleID: "a", appName: "A", title: "", index: 0, displayUUID: "A", relativeFrame: CGRect(x: 100, y: 100, width: 800, height: 600)),
+        WindowRecord(bundleID: "b", appName: "B", title: "", index: 0, displayUUID: "B", relativeFrame: CGRect(x: 0, y: 0, width: 1280, height: 1440)),
+    ])
+}
+
+@Test func placeMovesWindowToDisplayUnderItsCenter() {
+    var l = editLayout()
+    l.place(windowAt: 0, frame: CGRect(x: 2000, y: -400, width: 800, height: 600)) // center on external
+    #expect(l.windows[0].displayUUID == "B")
+    #expect(l.windows[0].relativeFrame == CGRect(x: 488, y: 100, width: 800, height: 600))
+}
+
+@Test func placeFitsWindowInsideDisplay() {
+    var l = editLayout()
+    l.place(windowAt: 0, frame: CGRect(x: 1000, y: 500, width: 800, height: 600)) // center still on laptop, sticks out
+    #expect(l.windows[0].displayUUID == "A")
+    #expect(l.windows[0].relativeFrame == CGRect(x: 712, y: 382, width: 800, height: 600))
+}
+
+@Test func arrangeHalves() {
+    var l = editLayout()
+    l.arrange(windowAt: 1, .rightHalf)
+    #expect(l.windows[1].relativeFrame == CGRect(x: 1280, y: 0, width: 1280, height: 1440))
+    l.arrange(windowAt: 0, .center)
+    #expect(l.windows[0].relativeFrame == CGRect(x: 356, y: 191, width: 800, height: 600))
+}
+
+@Test func moveSnapsNearestEdge() {
+    let snapped = Snap.move(CGRect(x: 7, y: 300, width: 100, height: 100), targets: ([0, 500], [0]), threshold: 10)
+    #expect(snapped.minX == 0)    // left edge 7 -> 0
+    #expect(snapped.minY == 300)  // nothing near
+}
+
+@Test func resizeSnapsAndKeepsMinimum() {
+    let r = Snap.resize(CGRect(x: 0, y: 0, width: 400, height: 300), edges: [.right, .bottom],
+                        translation: CGSize(width: 95, height: -290), targets: ([500], []), threshold: 10)
+    #expect(r.maxX == 500)                         // 495 snapped to 500
+    #expect(r.height == Snap.minimumSize.height)   // can't collapse
+}
+
+// MARK: - Snapshots
+
+@Test func matcherPrefersWindowID() {
+    let records = [
+        WindowRecord(bundleID: "app", appName: "App", title: "", index: 0, displayUUID: "A", relativeFrame: .zero, windowID: 42, spaceIndex: 3),
+        WindowRecord(bundleID: "app", appName: "App", title: "", index: 1, displayUUID: "A", relativeFrame: .zero, windowID: 7, spaceIndex: 1),
+    ]
+    let live = [
+        LiveWindowInfo(bundleID: "app", title: "", index: 0, windowID: 7),
+        LiveWindowInfo(bundleID: "app", title: "", index: 1, windowID: 42),
+    ]
+    let pairs = Dictionary(uniqueKeysWithValues: Matcher.match(records: records, live: live).map { ($0.0, $0.1.windowID) })
+    #expect(pairs[0] == 7)
+    #expect(pairs[1] == 42)
+}
+
+@Test func oldLayoutsFileStillLoads() throws {
+    let json = """
+    [{"signature":"A","name":"Desk","displays":[],"updatedAt":"2026-11-16T10:00:00Z",
+      "windows":[{"bundleID":"a","appName":"A","title":"","index":0,"displayUUID":"A","relativeFrame":[[0,0],[10,10]]}]}]
+    """
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("layouts.json")
+    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data(json.utf8).write(to: url)
+    let layout = try #require(LayoutStore(fileURL: url).layout(for: "A"))
+    #expect(!layout.isSnapshot)
+    #expect(layout.windows.first?.spaceIndex == nil)
+    try FileManager.default.removeItem(at: url.deletingLastPathComponent())
+}
+
+@Test func snapshotsKeyedByIDSoSeveralPerDisplaySet() throws {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("snapshots.json")
+    let store = LayoutStore(fileURL: url)
+    for (id, name) in [("1", "Morning"), ("2", "Calls")] {
+        var s = Layout(signature: "A+B", name: name, displays: [laptop, external], windows: [])
+        s.id = id
+        s.spaceCounts = ["A": 1, "B": 4]
+        store.save(s)
+    }
+    let reloaded = LayoutStore(fileURL: url)
+    #expect(reloaded.layouts.count == 2)
+    #expect(reloaded.layout(for: "2")?.spaceCount(forDisplay: "B") == 4)
+    #expect(reloaded.layout(for: "2")?.hasDesktops == true)
+    try FileManager.default.removeItem(at: url.deletingLastPathComponent())
+}

@@ -8,7 +8,11 @@ final class AppModel: ObservableObject {
     @Published private(set) var isTrusted = AXWindow.isTrusted
     @Published private(set) var currentSignature = ""
     @Published private(set) var currentName = ""
+    /// Automatic layouts, one per display set.
     @Published private(set) var layouts: [Layout] = []
+    /// Named snapshots, newest first.
+    @Published private(set) var snapshots: [Layout] = []
+    @Published private(set) var isRestoring = false
     @Published private(set) var lastEvent = "Started"
 
     @Published var autoRestore: Bool { didSet { defaults.set(autoRestore, forKey: Keys.autoRestore) } }
@@ -19,8 +23,10 @@ final class AppModel: ObservableObject {
     }
 
     private let store = LayoutStore()
+    private let snapshotStore = LayoutStore(fileURL: LayoutStore.snapshotsURL)
     private let defaults = UserDefaults.standard
     private var observers: [NSObjectProtocol] = []
+    private var urlHandler: URLEventHandler?
     private var autosaveTimer: Timer?
     private var trustTimer: Timer?
     private var pendingDisplayChange: DispatchWorkItem?
@@ -36,6 +42,9 @@ final class AppModel: ObservableObject {
 
     static let autosaveInterval: TimeInterval = 30
     static let displaySettleDelay: TimeInterval = 2.5
+    /// Wait after launch before the startup snapshot, so apps opened at login have their windows up.
+    static let startupSnapshotDelay: TimeInterval = 20
+    static let startupSnapshotID = "startup"
 
     init() {
         defaults.register(defaults: [Keys.autoRestore: true, Keys.autoSave: true, Keys.restoreOnAppLaunch: true])
@@ -56,6 +65,10 @@ final class AppModel: ObservableObject {
         }
         autosaveTimer = Timer.scheduledTimer(withTimeInterval: Self.autosaveInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.autosaveTick() }
+        }
+        urlHandler = URLEventHandler { [weak self] url in self?.handleURL(url) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.startupSnapshotDelay) { [weak self] in
+            Task { @MainActor in self?.saveStartupSnapshot() }
         }
     }
 
@@ -84,14 +97,20 @@ final class AppModel: ObservableObject {
 
     func rename(_ layout: Layout) {
         guard let name = Self.promptForName(
-            title: "Rename Layout",
+            title: layout.isSnapshot ? "Rename Snapshot" : "Rename Layout",
             message: "New name for \"\(layout.name)\".",
             initial: layout.name,
             confirm: "Rename"
         ) else { return }
-        var renamed = layout
-        renamed.name = name
-        store.save(renamed)
+        rename(layout, to: name)
+    }
+
+    func rename(_ layout: Layout, to name: String) {
+        // Rename the stored copy: `layout` may be older than the latest autosave.
+        let target = storeFor(layout)
+        guard var stored = target.layout(for: layout.storeKey) else { return }
+        stored.name = name
+        target.save(stored)
         reloadLayouts()
         lastEvent = "Renamed to \"\(name)\""
     }
@@ -107,10 +126,121 @@ final class AppModel: ObservableObject {
         autosaveSuppressedUntil = Date().addingTimeInterval(5)
     }
 
+    /// Stores window positions edited in the Saved Layouts window. With these displays connected it also
+    /// moves the windows there; otherwise the next autosave would capture the live positions over the edits.
+    func saveEdits(_ edited: Layout) {
+        let target = storeFor(edited)
+        guard var stored = target.layout(for: edited.storeKey) else { return }
+        stored.windows = edited.windows
+        stored.updatedAt = Date()
+        target.save(stored)
+        reloadLayouts()
+        if stored.isSnapshot {
+            if stored.signature == currentSignature { restoreSnapshot(stored) } else { lastEvent = "Saved edits to \"\(stored.name)\"" }
+            return
+        }
+        if edited.signature == currentSignature, isTrusted {
+            let moved = WindowManager.restore(stored)
+            autosaveSuppressedUntil = Date().addingTimeInterval(5)
+            lastEvent = "Applied edits to \"\(stored.name)\", moved \(moved) windows"
+        } else {
+            lastEvent = "Saved edits to \"\(stored.name)\""
+        }
+    }
+
     func forget(_ layout: Layout) {
-        store.remove(signature: layout.signature)
+        storeFor(layout).remove(key: layout.storeKey)
         reloadLayouts()
     }
+
+    // MARK: - Snapshots
+
+    /// Asks for a name, then saves every window on every display and desktop as a new snapshot.
+    func saveSnapshot() {
+        guard isTrusted else { return requestAccess() }
+        refreshDisplays()
+        let stamp = Date().formatted(date: .abbreviated, time: .shortened)
+        guard let name = Self.promptForName(
+            title: "Save Snapshot",
+            message: "Saves which windows are on which display and desktop, and where.",
+            initial: "\(currentName) – \(stamp)",
+            confirm: "Save"
+        ) else { return }
+        let snapshot = Snapshots.capture(name: name)
+        snapshotStore.save(snapshot)
+        reloadLayouts()
+        lastEvent = "Saved snapshot \"\(name)\": \(snapshot.windows.count) windows"
+    }
+
+    /// Puts windows back as the snapshot has them, including desktops. Runs for a few seconds
+    /// (the screen flips through desktops), so it's async and ignores a second request meanwhile.
+    func restoreSnapshot(_ snapshot: Layout) {
+        guard isTrusted else { return requestAccess() }
+        guard !isRestoring else { return }
+        refreshDisplays()
+        guard snapshot.signature == currentSignature else {
+            lastEvent = "\"\(snapshot.name)\" is for other displays (\(Layout.defaultName(for: snapshot.displays)))"
+            return
+        }
+        isRestoring = true
+        lastEvent = "Restoring \"\(snapshot.name)\"…"
+        autosaveSuppressedUntil = .distantFuture
+        Task { @MainActor in
+            let report = await Snapshots.restore(snapshot)
+            isRestoring = false
+            autosaveSuppressedUntil = Date().addingTimeInterval(5)
+            lastEvent = "Restored \"\(snapshot.name)\": \(report.summary)"
+            EventLog.write(lastEvent)
+        }
+    }
+
+    /// Snapshot taken shortly after AutoWindow starts, replacing the previous startup snapshot.
+    private func saveStartupSnapshot() {
+        guard isTrusted, !isRestoring else { return }
+        let stamp = Date().formatted(date: .abbreviated, time: .shortened)
+        let snapshot = Snapshots.capture(name: "At startup (\(stamp))", id: Self.startupSnapshotID)
+        guard !snapshot.windows.isEmpty else { return }
+        snapshotStore.save(snapshot)
+        reloadLayouts()
+        lastEvent = "Startup snapshot: \(snapshot.windows.count) windows"
+    }
+
+    /// autowindow://snapshot/save?name=Desk  ·  autowindow://snapshot/restore?name=Desk
+    /// (no name: restore takes the newest snapshot for these displays). For Shortcuts, Raycast, scripts.
+    func handleURL(_ url: URL) {
+        if url.scheme == "autowindow", url.host == "debug", url.path == "/catalog" {
+            let file = LayoutStore.directory.appendingPathComponent("debug-catalog.txt")
+            try? WindowCatalog.diagnostics().write(to: file, atomically: true, encoding: .utf8)
+            return
+        }
+        guard url.scheme == "autowindow", url.host == "snapshot" else { return }
+        let name = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first { $0.name == "name" }?.value
+        switch url.path {
+        case "/save":
+            guard isTrusted else { return requestAccess() }
+            refreshDisplays()
+            let label = name ?? "\(currentName) – \(Date().formatted(date: .abbreviated, time: .shortened))"
+            var snapshot = Snapshots.capture(name: label)
+            // Saving under an existing name replaces that snapshot.
+            if let existing = snapshots.first(where: { $0.name == label }) { snapshot.id = existing.id }
+            snapshotStore.save(snapshot)
+            reloadLayouts()
+            lastEvent = "Saved snapshot \"\(label)\": \(snapshot.windows.count) windows"
+        case "/restore":
+            refreshDisplays()
+            let candidates = snapshots.filter { $0.signature == currentSignature }
+            if let snapshot = name.map({ n in candidates.first { $0.name == n } }) ?? candidates.first {
+                restoreSnapshot(snapshot)
+            } else {
+                lastEvent = "No snapshot \(name.map { "\"\($0)\" " } ?? "")for these displays"
+            }
+        default:
+            break
+        }
+    }
+
+    private func storeFor(_ layout: Layout) -> LayoutStore { layout.isSnapshot ? snapshotStore : store }
 
     func requestAccess() {
         AXWindow.requestTrust()
@@ -163,7 +293,7 @@ final class AppModel: ObservableObject {
 
     private func handleSettledDisplays() {
         refreshDisplays()
-        guard autoRestore, isTrusted, let layout = currentLayout else {
+        guard autoRestore, isTrusted, !isRestoring, let layout = currentLayout else {
             lastEvent = "Displays changed: \(currentName)"
             return
         }
@@ -179,7 +309,7 @@ final class AppModel: ObservableObject {
     }
 
     private func appLaunched(_ bundleID: String?) {
-        guard restoreOnAppLaunch, isTrusted, let bundleID, let layout = currentLayout,
+        guard restoreOnAppLaunch, isTrusted, !isRestoring, let bundleID, let layout = currentLayout,
               layout.windows.contains(where: { $0.bundleID == bundleID }) else { return }
         autosaveSuppressedUntil = Date().addingTimeInterval(8)
         // Windows appear after launch; try a few times.
@@ -223,6 +353,7 @@ final class AppModel: ObservableObject {
     }
 
     private func reloadLayouts() {
+        snapshots = snapshotStore.layouts.values.sorted { $0.updatedAt > $1.updatedAt }
         layouts = store.layouts.values.sorted { $0.updatedAt > $1.updatedAt }
     }
 
@@ -255,5 +386,25 @@ final class AppModel: ObservableObject {
 
     private static func time() -> String {
         Date().formatted(date: .omitted, time: .shortened)
+    }
+}
+
+/// Receives autowindow:// URLs. Apple Event handlers need an NSObject target.
+final class URLEventHandler: NSObject {
+    private let onURL: @MainActor (URL) -> Void
+
+    init(onURL: @escaping @MainActor (URL) -> Void) {
+        self.onURL = onURL
+        super.init()
+        NSAppleEventManager.shared().setEventHandler(
+            self, andSelector: #selector(handle(_:reply:)),
+            forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL)
+        )
+    }
+
+    @objc private func handle(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
+        guard let string = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+              let url = URL(string: string) else { return }
+        MainActor.assumeIsolated { onURL(url) }
     }
 }

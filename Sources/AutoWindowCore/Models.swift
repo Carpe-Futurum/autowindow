@@ -27,18 +27,27 @@ public struct WindowRecord: Codable, Hashable, Sendable {
     public var index: Int
     public var displayUUID: String
     public var relativeFrame: CGRect
+    /// CGWindowID at capture. Stays the same while the app keeps running, so it's the best match key.
+    public var windowID: UInt32?
+    /// Mission Control desktop on its display, 1-based. Nil when not captured (autosave doesn't track desktops).
+    public var spaceIndex: Int?
 
-    public init(bundleID: String, appName: String, title: String, index: Int, displayUUID: String, relativeFrame: CGRect) {
+    public init(bundleID: String, appName: String, title: String, index: Int, displayUUID: String, relativeFrame: CGRect,
+                windowID: UInt32? = nil, spaceIndex: Int? = nil) {
         self.bundleID = bundleID
         self.appName = appName
         self.title = title
         self.index = index
         self.displayUUID = displayUUID
         self.relativeFrame = relativeFrame
+        self.windowID = windowID
+        self.spaceIndex = spaceIndex
     }
 }
 
 /// All window placements for one particular set of connected displays.
+/// Two kinds: the automatic layout per display set (`id` nil, kept up to date by autosave) and
+/// named snapshots (`id` set, only changed when the user saves or edits them, include desktops).
 public struct Layout: Codable, Hashable, Sendable {
     /// Key derived from the set of connected display UUIDs.
     public var signature: String
@@ -46,6 +55,19 @@ public struct Layout: Codable, Hashable, Sendable {
     public var displays: [DisplaySnapshot]
     public var windows: [WindowRecord]
     public var updatedAt: Date
+    /// Set for named snapshots.
+    public var id: String?
+    /// Desktops per display UUID at capture (snapshots only).
+    public var spaceCounts: [String: Int]?
+    /// Desktop that was showing on each display UUID at capture, 1-based (snapshots only).
+    public var activeSpaces: [String: Int]?
+
+    public var isSnapshot: Bool { id != nil }
+    public var storeKey: String { id ?? signature }
+
+    /// Number of desktops a display had at capture (1 if unknown).
+    public func spaceCount(forDisplay uuid: String) -> Int { spaceCounts?[uuid] ?? 1 }
+    public var hasDesktops: Bool { (spaceCounts ?? [:]).values.contains { $0 > 1 } }
 
     public init(signature: String, name: String, displays: [DisplaySnapshot], windows: [WindowRecord], updatedAt: Date = Date()) {
         self.signature = signature

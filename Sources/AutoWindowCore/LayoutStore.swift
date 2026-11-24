@@ -1,6 +1,7 @@
 import Foundation
 
-/// Persists layouts as JSON, one per display signature.
+/// Persists layouts as JSON, keyed by `Layout.storeKey`: the display signature for automatic
+/// layouts (layouts.json), the snapshot id for named snapshots (snapshots.json).
 public final class LayoutStore {
     public let fileURL: URL
     public private(set) var layouts: [String: Layout] = [:]
@@ -10,21 +11,23 @@ public final class LayoutStore {
         load()
     }
 
-    public static var defaultURL: URL {
+    public static var directory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("AutoWindow", isDirectory: true)
-            .appendingPathComponent("layouts.json")
     }
 
-    public func layout(for signature: String) -> Layout? { layouts[signature] }
+    public static var defaultURL: URL { directory.appendingPathComponent("layouts.json") }
+    public static var snapshotsURL: URL { directory.appendingPathComponent("snapshots.json") }
+
+    public func layout(for key: String) -> Layout? { layouts[key] }
 
     public func save(_ layout: Layout) {
-        layouts[layout.signature] = layout
+        layouts[layout.storeKey] = layout
         persist()
     }
 
-    public func remove(signature: String) {
-        layouts[signature] = nil
+    public func remove(key: String) {
+        layouts[key] = nil
         persist()
     }
 
@@ -33,7 +36,7 @@ public final class LayoutStore {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         if let list = try? decoder.decode([Layout].self, from: data) {
-            layouts = Dictionary(list.map { ($0.signature, $0) }, uniquingKeysWith: { $1 })
+            layouts = Dictionary(list.map { ($0.storeKey, $0) }, uniquingKeysWith: { $1 })
         }
     }
 
