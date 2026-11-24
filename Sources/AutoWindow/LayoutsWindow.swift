@@ -153,10 +153,16 @@ private struct LayoutDetail: View {
         .onChange(of: isEdited) { _, edited in dirty = edited }
         .onDisappear {
             commitName()
+            // Still edited and nobody chose to discard: the window was closed. It can't be kept open from
+            // here, so ask now rather than drop the edits silently.
+            if isEdited, dirty { offerToSave(draft) }
             dirty = false
         }
         .confirmationDialog("Forget \"\(layout.name)\"?", isPresented: $confirmForget) {
-            Button("Forget", role: .destructive) { model.forget(layout) }
+            Button("Forget", role: .destructive) {
+                dirty = false
+                model.forget(layout)
+            }
         } message: {
             Text("The saved positions for these displays are deleted. Autosave starts a new layout next time these displays are connected.")
         }
@@ -281,11 +287,12 @@ private struct LayoutDetail: View {
                 Text(row.display + (row.record.spaceIndex.map { draft.spaceCount(forDisplay: row.record.displayUUID) > 1 ? " · Desktop \($0)" : "" } ?? ""))
             }
             TableColumn("Position") { row in
-                Text("\(Int(row.record.relativeFrame.minX)), \(Int(row.record.relativeFrame.minY))").monospacedDigit()
+                // verbatim: an interpolated Text formats numbers for the locale ("1.280" in Dutch), wrong for coordinates.
+                Text(verbatim: "\(Int(row.record.relativeFrame.minX)), \(Int(row.record.relativeFrame.minY))").monospacedDigit()
             }
             .width(80)
             TableColumn("Size") { row in
-                Text("\(Int(row.record.relativeFrame.width)) × \(Int(row.record.relativeFrame.height))").monospacedDigit()
+                Text(verbatim: "\(Int(row.record.relativeFrame.width)) × \(Int(row.record.relativeFrame.height))").monospacedDigit()
             }
             .width(90)
         }
@@ -314,6 +321,19 @@ private struct LayoutDetail: View {
         model.saveEdits(draft)
         base = draft.windows
         undoStack = []
+    }
+
+    private func offerToSave(_ edited: AutoWindowCore.Layout) {
+        let model = model, verb = isCurrent ? "Apply" : "Save"
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "\(verb) your edits to \"\(edited.name)\"?"
+            alert.informativeText = "You closed the window with edits that weren't applied or saved."
+            alert.addButton(withTitle: verb)
+            alert.addButton(withTitle: "Discard").hasDestructiveAction = true
+            NSApp.activate(ignoringOtherApps: true)
+            if alert.runModal() == .alertFirstButtonReturn { model.saveEdits(edited) }
+        }
     }
 
     private func commitName() {
