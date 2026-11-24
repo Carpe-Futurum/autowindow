@@ -169,6 +169,7 @@ swift test                      # core logic tests (AutoWindowCore)
 scripts/build-app.sh            # build/AutoWindow.app
 scripts/build-app.sh --run      # build and launch
 scripts/build-app.sh --install  # also copy to /Applications
+scripts/release.sh              # universal, signed, notarized zip in dist/ (needs a Developer ID and notary credentials)
 ```
 
 It's a plain Swift package with no Xcode project; `scripts/build-app.sh` wraps the binary into an app bundle.
