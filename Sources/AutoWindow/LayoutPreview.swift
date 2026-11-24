@@ -81,6 +81,7 @@ struct LayoutPreview: View {
     }
 
     private func isVisible(_ i: Int) -> Bool {
+        guard layout.windows.indices.contains(i) else { return false }
         guard let desktop else { return true }
         let r = layout.windows[i]
         return layout.spaceCount(forDisplay: r.displayUUID) <= 1 || (r.spaceIndex ?? 1) == desktop

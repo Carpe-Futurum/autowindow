@@ -21,7 +21,7 @@ enum WindowManager {
     }
 
     /// Every standard window on every desktop. The search runs off the main thread (it can take a second or two).
-    static func catalog(onlyBundleID: String? = nil) async -> [WindowCatalog.Entry] {
+    static func catalog(onlyBundleID: String? = nil) async -> WindowCatalog.Result {
         let apps = regularApps().filter { onlyBundleID == nil || $0.bundleIdentifier == onlyBundleID }
         return await Task.detached(priority: .userInitiated) { WindowCatalog.all(apps: apps) }.value
     }
@@ -55,22 +55,32 @@ enum WindowManager {
         return records
     }
 
-    static func capture() async -> Layout {
+    /// The layout as it is now, plus the apps that didn't answer (their windows are unknown, not gone).
+    static func capture() async -> (layout: Layout, unreachable: Set<String>) {
         let displays = Displays.current()
-        let entries = await catalog()
-        return Layout(
+        let found = await catalog()
+        var layout = Layout(
             signature: Layout.signature(for: displays),
             name: Layout.defaultName(for: displays),
             displays: displays,
-            windows: records(for: entries, displays: displays, spaces: Spaces.displays())
+            windows: records(for: found.entries, displays: displays, spaces: Spaces.displays())
         )
+        layout.session = BootSession.current
+        return (layout, found.unreachable)
+    }
+
+    /// Full-screen windows sit in a space of their own that's on no display's desktop list. They're left alone.
+    static func isFullScreen(_ entry: WindowCatalog.Entry, desktops: Set<UInt64>) -> Bool {
+        !entry.spaces.isEmpty && !entry.spaces.contains(where: desktops.contains)
     }
 
     /// Moves open windows to their saved place. `onlyBundleID` limits it to one app (e.g. just launched).
     @discardableResult
     static func restore(_ layout: Layout, onlyBundleID: String? = nil) async -> Int {
-        let records = layout.windows.filter { onlyBundleID == nil || $0.bundleID == onlyBundleID }
-        let entries = await catalog(onlyBundleID: onlyBundleID)
+        let records = layout.recordsForMatching(session: BootSession.current)
+            .filter { onlyBundleID == nil || $0.bundleID == onlyBundleID }
+        let entries = await catalog(onlyBundleID: onlyBundleID).entries
+        let desktops = Set(Spaces.displays().flatMap(\.desktops))
         let displays = Dictionary(Displays.current().map { ($0.uuid, $0) }, uniquingKeysWith: { a, _ in a })
         let live = entries.map { LiveWindowInfo(bundleID: $0.bundleID, title: $0.title, index: $0.index, windowID: $0.id) }
 
@@ -78,6 +88,7 @@ enum WindowManager {
         for (liveIndex, record) in Matcher.match(records: records, live: live) {
             guard let display = displays[record.displayUUID] else { continue }
             let target = Geometry.absolute(record.relativeFrame, on: display)
+            if isFullScreen(entries[liveIndex], desktops: desktops) { continue }
             let window = entries[liveIndex].window
             if let current = window.frame, current.integral == target.integral { continue }
             window.setFrame(target)

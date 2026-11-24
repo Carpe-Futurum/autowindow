@@ -7,7 +7,7 @@ enum Snapshots {
     /// Captures all windows on all desktops.
     static func capture(name: String, id: String = UUID().uuidString) async -> Layout {
         let displays = Displays.current()
-        let entries = await WindowManager.catalog()
+        let entries = await WindowManager.catalog().entries
         let spaces = Spaces.displays()
         var layout = Layout(
             signature: Layout.signature(for: displays),
@@ -16,6 +16,7 @@ enum Snapshots {
             windows: WindowManager.records(for: entries, displays: displays, spaces: spaces)
         )
         layout.id = id
+        layout.session = BootSession.current
         layout.spaceCounts = Dictionary(spaces.map { ($0.uuid, max($0.desktops.count, 1)) }, uniquingKeysWith: { a, _ in a })
         layout.activeSpaces = Dictionary(spaces.compactMap { s in s.currentIndex.map { (s.uuid, $0) } }, uniquingKeysWith: { a, _ in a })
         return layout
@@ -25,12 +26,14 @@ enum Snapshots {
         var placed = 0
         var movedDesktop = 0
         var notFound = 0
+        var fullScreen = 0
         var problems: [String] = []
 
         var summary: String {
             var parts = ["placed \(placed) windows"]
             if movedDesktop > 0 { parts.append("\(movedDesktop) moved to another desktop") }
-            if notFound > 0 { parts.append("\(notFound) not open") }
+            if notFound > 0 { parts.append("\(notFound) not found (closed, minimized or unreachable)") }
+            if fullScreen > 0 { parts.append("\(fullScreen) full-screen left alone") }
             return parts.joined(separator: ", ") + (problems.isEmpty ? "" : ". " + problems.joined(separator: " "))
         }
     }
@@ -43,9 +46,10 @@ enum Snapshots {
         var report = Report()
         SpaceMover.cancelled = false
         let displays = Dictionary(Displays.current().map { ($0.uuid, $0) }, uniquingKeysWith: { a, _ in a })
-        let catalog = await WindowManager.catalog()
+        let catalog = await WindowManager.catalog().entries
+        let desktops = Set(Spaces.displays().flatMap(\.desktops))
         let live = catalog.map { LiveWindowInfo(bundleID: $0.bundleID, title: $0.title, index: $0.index, windowID: $0.id) }
-        let pairs = Matcher.match(records: layout.windows, live: live)
+        let pairs = Matcher.match(records: layout.recordsForMatching(session: BootSession.current), live: live)
         report.notFound = layout.windows.count - pairs.count
         let pointer = CGEvent(source: nil)?.location
         let startCurrent = Dictionary(Spaces.displays().map { ($0.uuid, $0.current) }, uniquingKeysWith: { a, _ in a })
@@ -55,6 +59,8 @@ enum Snapshots {
         for (liveIndex, record) in pairs {
             guard let display = displays[record.displayUUID] else { continue }
             let entry = catalog[liveIndex]
+            // Full-screen windows are left alone: no resize, and no drag (their title bar isn't where a click would land).
+            if WindowManager.isFullScreen(entry, desktops: desktops) { report.fullScreen += 1; continue }
             jobs.append(Job(window: entry.window, id: entry.id,
                             target: Geometry.absolute(record.relativeFrame, on: display),
                             display: display, desktop: record.spaceIndex))
@@ -139,6 +145,13 @@ enum SpaceMover {
         // Stay off the very top edge of the display: dragging a window there opens Mission Control.
         let drop = CGPoint(x: target.minX + offset.x, y: max(target.minY + offset.y, display.bounds.minY + 12))
 
+        // Only press the mouse if this window really is what's under the grab point. If raising it didn't
+        // work (a sheet, a floating panel, a slow app), the press would grab something else.
+        guard topWindow(at: grab) == id else {
+            EventLog.write("move window \(id): not frontmost at its title bar, left where it is")
+            return .failed
+        }
+
         // 2. Hold the title bar and carry it to where it belongs (possibly another display).
         post(.mouseMoved, at: grab)
         post(.leftMouseDown, at: grab)
@@ -206,6 +219,19 @@ enum SpaceMover {
             }
         }
         return .failed
+    }
+
+    /// The frontmost ordinary or floating window at a point (menu bar, Dock and screen overlays are ignored).
+    private static func topWindow(at point: CGPoint) -> CGWindowID? {
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        for w in list { // front to back
+            guard let layer = w[kCGWindowLayer as String] as? Int, (0..<20).contains(layer),
+                  (w[kCGWindowAlpha as String] as? CGFloat ?? 1) > 0,
+                  let bounds = (w[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0 as CFDictionary) }),
+                  bounds.contains(point) else { continue }
+            return w[kCGWindowNumber as String] as? CGWindowID
+        }
+        return nil
     }
 
     private static func showing(_ uuid: String) -> UInt64? {

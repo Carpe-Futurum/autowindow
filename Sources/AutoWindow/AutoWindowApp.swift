@@ -79,7 +79,7 @@ struct MenuContent: View {
         Button("Update Automatic Layout…") { model.saveNow() }
         Button("Restore Automatic Layout") { model.restoreNow() }
             .keyboardShortcut("r")
-            .disabled(model.currentLayout == nil)
+            .disabled(model.currentLayout == nil || model.isRestoring)
 
         Divider()
 

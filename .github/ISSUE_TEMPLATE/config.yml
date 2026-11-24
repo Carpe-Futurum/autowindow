@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem privately
+    url: https://github.com/Carpe-Futurum/autowindow/security/advisories/new
+    about: Please don't open a public issue for vulnerabilities.
+  - name: Help and setup guide
+    url: https://github.com/Carpe-Futurum/autowindow#setup
+    about: Permissions, desktop shortcuts and common problems.

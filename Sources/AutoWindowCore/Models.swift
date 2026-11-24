@@ -61,6 +61,15 @@ public struct Layout: Codable, Hashable, Sendable {
     public var spaceCounts: [String: Int]?
     /// Desktop that was showing on each display UUID at capture, 1-based (snapshots only).
     public var activeSpaces: [String: Int]?
+    /// Boot session the window IDs belong to (`BootSession.current` at capture). Window IDs start over at
+    /// every restart, so they only identify a window within the same session.
+    public var session: Int?
+
+    /// The records to match against open windows: window IDs are dropped unless they're from this session.
+    public func recordsForMatching(session current: Int) -> [WindowRecord] {
+        guard session != current else { return windows }
+        return windows.map { var r = $0; r.windowID = nil; return r }
+    }
 
     public var isSnapshot: Bool { id != nil }
     public var storeKey: String { id ?? signature }
@@ -83,7 +92,8 @@ public struct Layout: Codable, Hashable, Sendable {
         let kept = windows.filter { !runningBundleIDs.contains($0.bundleID) }
         var result = fresh
         result.name = name
-        result.windows = kept + fresh.windows
+        // Kept records carry IDs from an older capture; they're from apps not running, so the IDs are dead anyway.
+        result.windows = kept.map { var r = $0; r.windowID = nil; return r } + fresh.windows
         return result
     }
 
@@ -95,4 +105,13 @@ public struct Layout: Codable, Hashable, Sendable {
         let names = displays.sorted { $0.isMain && !$1.isMain }.map(\.name)
         return names.isEmpty ? "No displays" : names.joined(separator: " + ")
     }
+}
+
+/// Identifies the current boot: the kernel's boot time in seconds.
+public enum BootSession {
+    public static let current: Int = {
+        var time = timeval()
+        var size = MemoryLayout<timeval>.stride
+        return sysctlbyname("kern.boottime", &time, &size, nil, 0) == 0 ? Int(time.tv_sec) : 0
+    }()
 }

@@ -8,7 +8,7 @@ back with one click.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-lightgrey)
-![Swift 6](https://img.shields.io/badge/Swift-6-orange)
+![Swift 6 toolchain](https://img.shields.io/badge/Swift-6%20toolchain-orange)
 [![Test](https://github.com/Carpe-Futurum/autowindow/actions/workflows/test.yml/badge.svg)](https://github.com/Carpe-Futurum/autowindow/actions/workflows/test.yml)
 
 ## Features
@@ -18,8 +18,8 @@ back with one click.
   undock, monitor on or off, wake from sleep) it puts every window back. When an app launches, its windows go
   to their remembered place. The layout updates itself every 30 seconds and covers windows on every desktop
   (they keep the desktop they're on; only snapshots move windows between desktops).
-- **Snapshots with desktops (Spaces).** Press ⌘S in the menu to save a named snapshot of every window on every
-  display *and* every desktop. Restoring moves each window back to its display, desktop, position and size,
+- **Snapshots with desktops (Spaces).** Press ⌘S in the menu to save a named snapshot of the open windows on
+  every display *and* every desktop (minimized and full-screen windows are left out). Restoring moves each window back to its display, desktop, position and size,
   and shows the desktops that were showing when you saved. A snapshot is also taken shortly after AutoWindow
   starts.
 - **Visual editor.** The Layouts & Snapshots window (⌘L) draws each layout as a map of your displays with every
@@ -29,7 +29,7 @@ back with one click.
   - Arrow keys nudge the selected window.
   - Type exact positions and sizes, or use left/right/top/bottom half, fill and center.
   - Edits are a draft with undo until you Apply or Save.
-- **Scriptable.** Save and restore snapshots from Shortcuts, Raycast, a cron job or the terminal:
+- **Scriptable.** Save and restore snapshots from Shortcuts, Raycast or the terminal:
 
   ```bash
   open "autowindow://snapshot/save?name=Desk"
@@ -37,15 +37,20 @@ back with one click.
   ```
 
   Links are **off by default**, because any app or web page can open one; turn on **Allow Control by
-  autowindow:// Links** in the menu to use them. Without a name, restore picks the newest snapshot for the
-  connected displays; with a name used several times, the newest of those. A link always saves a new snapshot
+  autowindow:// Links** in the menu to use them. The switch keeps web pages and stray links out. It is not a
+  barrier against other software already running under your account, which can change the setting itself.
+  Links are limited to one every two seconds. Without a name, restore picks the newest snapshot for the
+  connected displays (not counting the automatic "At startup" one); with a name used several times, the newest
+  of those. A link always saves a new snapshot
   and never replaces or deletes one.
 
 ## Install
 
-There are no prebuilt releases yet; build it from source (about a minute).
+Download the latest signed and notarized build from
+[Releases](https://github.com/Carpe-Futurum/autowindow/releases/latest), unzip it and drag AutoWindow to
+Applications. It runs on macOS 14 Sonoma or later, on Apple silicon and Intel.
 
-Requirements: macOS 14 Sonoma or later, Xcode 16 or later (Swift 6).
+Or build it from source (about a minute). Requirements: macOS 14 or later, Xcode 16 or later.
 
 ```bash
 git clone https://github.com/Carpe-Futurum/autowindow.git
@@ -106,17 +111,22 @@ each rebuild.
 
 ## How desktops (Spaces) work
 
-macOS has no public API to move a window to another desktop. The private one window managers used stopped
-working in macOS 14.5 unless System Integrity Protection is turned off, and AutoWindow does not ask you to do
-that. Instead it does what you would do by hand: it holds the window's title bar, presses the "Switch to
+macOS has no public API to move a window to another desktop. The private one window managers used is
+reported to have stopped working around macOS 14.5 unless System Integrity Protection is turned off, and
+AutoWindow does not ask you to do that. Instead it does what you would do by hand: it holds the window's title bar, presses the "Switch to
 Desktop N" shortcut, and lets go. The pointer is put back afterwards.
 
 Limitations:
 
 - The screen visibly flips through desktops for a few seconds during a restore. Don't use the mouse meanwhile.
-  **Hold Esc** to stop: the window being moved is released and the rest are left where they are.
+  **Hold Esc** to stop moving windows between desktops: the window being carried is released. Positions and
+  sizes have already been applied by then, and the displays stay on whichever desktop they were showing.
+- Before pressing the mouse, AutoWindow checks that the window it wants is the frontmost thing at that spot.
+  If it isn't (a sheet is open, another window floats on top), that window keeps its desktop.
 - Only open windows are placed. AutoWindow doesn't launch apps or reopen windows; a restore reports how many
-  saved windows weren't open.
+  saved windows it couldn't find (closed, minimized, or their app didn't answer).
+- Finding windows on desktops that aren't showing is best effort: an app that is busy at that moment can be
+  missed for that capture.
 - "Displays have separate Spaces" turned off, and Stage Manager, are untested.
 - AutoWindow doesn't create desktops. If a display now has fewer desktops than in the snapshot, those windows
   go to its last desktop.
@@ -126,14 +136,20 @@ Limitations:
 
 ## Privacy
 
-AutoWindow has no network code. It stores window positions, app names and window titles locally in
-`~/Library/Application Support/AutoWindow/`:
+AutoWindow has no network code. It stores window positions, app names, bundle IDs, display names and window
+titles locally in `~/Library/Application Support/AutoWindow/`. Window titles can be revealing (document names,
+page titles, mail subjects), and the saved place of an app that isn't running is kept until you delete the
+layout. Look through these files before attaching one to a bug report:
 
 | File | Contents |
 | --- | --- |
 | `layouts.json` | Automatic layouts, one per set of displays |
 | `snapshots.json` | Named snapshots |
 | `events.log` | Restore steps, for troubleshooting (starts over at 256 KB) |
+| `debug-catalog.txt` | Only if you open `autowindow://debug/catalog`: what macOS reports per app |
+| `*.unreadable-<date>.json` | A copy of a layouts or snapshots file AutoWindow couldn't fully read |
+
+Settings are in `~/Library/Preferences/nl.carpefuturum.autowindow.plist`.
 
 Nothing leaves your Mac.
 
@@ -154,8 +170,8 @@ Nothing leaves your Mac.
 - An automatic layout is keyed by the sorted UUIDs of the connected displays.
 - Window frames are stored relative to their display, so rearranging displays in System Settings doesn't
   break a layout.
-- Saved windows are matched to open ones by window ID (while the app keeps running), then by exact title,
-  then by window order within the app.
+- Saved windows are matched to open ones by window ID (only within the same boot session, since IDs start
+  over at restart), then by exact title, then by window order within the app.
 - Autosave pauses for about 12 s after a display change, so the scrambled state macOS leaves behind isn't saved
   over the good layout.
 - With links allowed, `autowindow://debug/catalog` writes `debug-catalog.txt` next to the layouts: what the Accessibility API and
@@ -176,15 +192,14 @@ It's a plain Swift package with no Xcode project; `scripts/build-app.sh` wraps t
 
 ## Roadmap
 
-- Prebuilt, notarized releases
 - A screenshot in this README
 - Per-app exclusions in the UI
 - Creating missing desktops
 
 ## Contributing
 
-Issues and pull requests are welcome. Please run `swift test` before opening a pull request, and describe how
-you tested window behaviour: on which macOS version, and with how many displays and desktops.
+Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). To report a security problem
+privately, see [SECURITY.md](SECURITY.md).
 
 ## License
 

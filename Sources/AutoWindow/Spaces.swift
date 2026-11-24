@@ -118,8 +118,21 @@ enum DesktopShortcuts {
               let params = (entry["value"] as? [String: Any])?["parameters"] as? [Int], params.count == 3
         else { return nil }
         let enabled = (entry["enabled"] as? Bool) == true || (entry["enabled"] as? Int) == 1
-        return (enabled, Shortcut(keyCode: CGKeyCode(params[1]), flags: CGEventFlags(rawValue: UInt64(params[2]))))
+        // The preference file is plain user data. Only ever post something that looks like a desktop shortcut:
+        // Control, Option or Command held, plus a digit, arrow or function key. Anything else counts as "off".
+        guard let keyCode = CGKeyCode(exactly: params[1]), let rawFlags = UInt64(exactly: params[2]),
+              allowedKeys.contains(keyCode) else { return nil }
+        let flags = CGEventFlags(rawValue: rawFlags)
+        guard !flags.isDisjoint(with: [.maskControl, .maskAlternate, .maskCommand]) else { return nil }
+        return (enabled, Shortcut(keyCode: keyCode, flags: flags))
     }
+
+    private static let allowedKeys: Set<CGKeyCode> = [
+        18, 19, 20, 21, 23, 22, 26, 28, 25, 29,                 // 1…9, 0
+        123, 124, 125, 126,                                     // arrows
+        122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111, // F1…F12
+        105, 107, 113, 106, 64, 79, 80, 90,                     // F13…F20
+    ]
 
     static func press(_ s: Shortcut) {
         let src = CGEventSource(stateID: .hidSystemState)

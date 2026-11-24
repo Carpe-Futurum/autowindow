@@ -22,15 +22,26 @@ enum WindowCatalog {
         let spaces: [UInt64]
     }
 
-    static func all(apps: [NSRunningApplication]) -> [Entry] {
+    struct Result: Sendable {
+        var entries: [Entry] = []
+        /// Apps that didn't answer in time (busy, beachballing). Their windows are unknown, not gone:
+        /// callers must not read their absence as "this app has no windows".
+        var unreachable: Set<String> = []
+    }
+
+    static func all(apps: [NSRunningApplication]) -> Result {
         let cgByPID = candidateWindowIDs()
         let visible = Set(Spaces.displays().map(\.current))
-        var result: [Entry] = []
+        var result = Result()
         for app in apps {
             guard let bundleID = app.bundleIdentifier else { continue }
+            guard let listed = AXWindow.elements(of: app) else {
+                result.unreachable.insert(bundleID)
+                continue
+            }
             var seen = Set<CGWindowID>()
             var windows: [(AXWindow, CGWindowID)] = []
-            for w in AXWindow.allElements(of: app) {
+            for w in listed {
                 guard let id = w.windowID, seen.insert(id).inserted else { continue }
                 windows.append((w, id))
             }
@@ -45,7 +56,7 @@ enum WindowCatalog {
                 // Windows on other desktops often don't answer the subrole question; the window server already
                 // vouched for them (normal level, real size), so a readable frame is enough.
                 guard !w.isMinimized, let frame = w.frame, w.isStandard || w.subrole == nil else { continue }
-                result.append(Entry(window: w, id: id, bundleID: bundleID, appName: app.localizedName ?? bundleID,
+                result.entries.append(Entry(window: w, id: id, bundleID: bundleID, appName: app.localizedName ?? bundleID,
                                     index: index, title: w.title, frame: frame, spaces: Spaces.spaces(forWindow: id)))
                 index += 1
             }
@@ -108,6 +119,7 @@ enum WindowCatalog {
         var remaining = wanted
         var found: [(AXWindow, CGWindowID)] = []
         let deadline = Date().addingTimeInterval(0.75)
+        var probes = 0
         var token = Data(count: 20)
         token.withUnsafeMutableBytes { raw in
             raw.storeBytes(of: app.processIdentifier, toByteOffset: 0, as: Int32.self)
@@ -115,9 +127,12 @@ enum WindowCatalog {
             raw.storeBytes(of: Int32(0x636f_636f), toByteOffset: 8, as: Int32.self) // "coco"
         }
         for elementID in UInt64(0)..<0x7fff {
-            if remaining.isEmpty || (elementID % 256 == 0 && Date() > deadline) { break }
+            // Reading the clock is cheap next to an AX call; a busy app must not stretch this past the deadline.
+            if remaining.isEmpty || Date() > deadline { break }
             token.withUnsafeMutableBytes { $0.storeBytes(of: elementID, toByteOffset: 12, as: UInt64.self) }
             guard let element = create(token as CFData)?.takeRetainedValue() else { continue }
+            if probes == 0 { AXUIElementSetMessagingTimeout(element, 0.25) }
+            probes += 1
             let w = AXWindow(element: element, app: app)
             // Any element reports its window's ID; only the window itself is wanted.
             guard let id = w.windowID, remaining.contains(id), w.role == (kAXWindowRole as String) else { continue }
@@ -128,19 +143,22 @@ enum WindowCatalog {
         return found
     }
 
-    // Window IDs that two searches couldn't find: not searched again, so one odd window
-    // doesn't cost every later capture its full time limit. IDs aren't reused within a login session.
+    // Window IDs that two searches in a row couldn't find are left alone for ten minutes, so one odd window
+    // doesn't cost every capture its full time limit, and a window missed while its app was busy comes back.
     private static let lock = NSLock()
-    nonisolated(unsafe) private static var misses: [CGWindowID: Int] = [:]
+    nonisolated(unsafe) private static var misses: [CGWindowID: (count: Int, last: Date)] = [:]
+    private static let missPause: TimeInterval = 600
 
     private static func isUnfindable(_ id: CGWindowID) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        return (misses[id] ?? 0) >= 2
+        guard let miss = misses[id] else { return false }
+        if Date().timeIntervalSince(miss.last) > missPause { misses[id] = nil; return false }
+        return miss.count >= 2
     }
 
     private static func noteMiss(_ id: CGWindowID) {
         lock.lock(); defer { lock.unlock() }
-        misses[id, default: 0] += 1
+        misses[id] = ((misses[id]?.count ?? 0) + 1, Date())
     }
 }
 
@@ -161,14 +179,18 @@ extension AXWindow {
     }
 
     /// All window elements AX lists for the app (visible desktops only), unfiltered.
-    static func allElements(of app: NSRunningApplication) -> [AXWindow] {
+    /// Nil when the app didn't answer in time; empty when it answered and has none.
+    static func elements(of app: NSRunningApplication) -> [AXWindow]? {
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetMessagingTimeout(appElement, 1.0)
         var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value) == .success,
-              let elements = value as? [AXUIElement] else { return [] }
+        let error = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value)
+        if error == .cannotComplete { return nil }
+        guard error == .success, let elements = value as? [AXUIElement] else { return [] }
         return elements.map { AXWindow(element: $0, app: app) }
     }
+
+    static func allElements(of app: NSRunningApplication) -> [AXWindow] { elements(of: app) ?? [] }
 
     var role: String? { string(kAXRoleAttribute) }
     var subrole: String? { string(kAXSubroleAttribute) }

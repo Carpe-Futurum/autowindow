@@ -143,13 +143,18 @@ private struct LayoutDetail: View {
         .onChange(of: layout) { _, fresh in
             // Autosave refreshes the stored layout; follow it unless the user is mid-edit.
             if !isEdited {
+                // Window numbers are positions in the list: if the list changed, the selection means something else.
+                if fresh.windows.map(\.windowID) != draft.windows.map(\.windowID) { selectedWindow = nil }
                 draft = fresh
                 base = fresh.windows
                 undoStack = []
             }
         }
         .onChange(of: isEdited) { _, edited in dirty = edited }
-        .onDisappear(perform: commitName)
+        .onDisappear {
+            commitName()
+            dirty = false
+        }
         .confirmationDialog("Forget \"\(layout.name)\"?", isPresented: $confirmForget) {
             Button("Forget", role: .destructive) { model.forget(layout) }
         } message: {

@@ -162,3 +162,54 @@ private func editLayout() -> Layout {
     #expect(reloaded.layout(for: "2")?.hasDesktops == true)
     try FileManager.default.removeItem(at: url.deletingLastPathComponent())
 }
+
+// MARK: - Hardening
+
+@Test func unreadableEntryDoesNotHideTheRestAndIsKeptAside() throws {
+    let json = """
+    [{"signature":"A","name":"Good","displays":[],"updatedAt":"2026-11-16T10:00:00Z","windows":[]},
+     {"signature":"B","name":"Bad","displays":"oops"}]
+    """
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let url = dir.appendingPathComponent("layouts.json")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    try Data(json.utf8).write(to: url)
+    let store = LayoutStore(fileURL: url)
+    #expect(store.layout(for: "A")?.name == "Good")
+    #expect(store.loadProblem != nil)
+    let copies = try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { $0.contains("unreadable") }
+    #expect(copies.count == 1)
+    #expect(try Data(contentsOf: dir.appendingPathComponent(copies[0])) == Data(json.utf8))
+    try FileManager.default.removeItem(at: dir)
+}
+
+@Test func notJSONIsKeptAsideNotOverwrittenBlind() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let url = dir.appendingPathComponent("snapshots.json")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    try Data("{ not json".utf8).write(to: url)
+    let store = LayoutStore(fileURL: url)
+    #expect(store.layouts.isEmpty)
+    #expect(store.loadProblem != nil)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path).contains { $0.contains("unreadable") })
+    try FileManager.default.removeItem(at: dir)
+}
+
+@Test func windowIDsAreOnlyTrustedInTheSameBootSession() {
+    var layout = Layout(signature: "s", name: "n", displays: [laptop], windows: [
+        WindowRecord(bundleID: "a", appName: "A", title: "t", index: 0, displayUUID: "A", relativeFrame: .zero, windowID: 9),
+    ])
+    layout.session = 100
+    #expect(layout.recordsForMatching(session: 100).first?.windowID == 9)
+    #expect(layout.recordsForMatching(session: 200).first?.windowID == nil)
+    layout.session = nil // saved by an older version
+    #expect(layout.recordsForMatching(session: 100).first?.windowID == nil)
+}
+
+@Test func mergeDropsDeadWindowIDsOfAppsNotRunning() {
+    let old = Layout(signature: "s", name: "Desk", displays: [laptop], windows: [
+        WindowRecord(bundleID: "quit", appName: "Q", title: "", index: 0, displayUUID: "A", relativeFrame: .zero, windowID: 5),
+    ])
+    let fresh = Layout(signature: "s", name: "auto", displays: [laptop], windows: [])
+    #expect(old.merging(fresh, runningBundleIDs: []).windows.first?.windowID == nil)
+}

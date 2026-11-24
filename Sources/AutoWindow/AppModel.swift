@@ -38,6 +38,10 @@ final class AppModel: ObservableObject {
     /// the windows, and saving then would overwrite the good layout.
     private var autosaveSuppressedUntil = Date()
     private var isAutosaving = false
+    /// Display set whose windows macOS just scrambled and nothing restored (auto-restore is off):
+    /// autosave stays off for it until the user restores or updates the layout, so the scramble isn't saved.
+    private var autosavePausedFor: String?
+    private var lastLinkAt = Date.distantPast
 
     private enum Keys {
         static let autoRestore = "autoRestore"
@@ -62,6 +66,10 @@ final class AppModel: ObservableObject {
         refreshDisplays()
         reloadLayouts()
         observe()
+        if let problem = store.loadProblem ?? snapshotStore.loadProblem {
+            lastEvent = problem
+            EventLog.write(problem)
+        }
 
         if !isTrusted {
             AXWindow.requestTrust()
@@ -89,15 +97,20 @@ final class AppModel: ObservableObject {
         refreshDisplays()
         guard let name = Self.promptForName(
             title: "Save Layout",
-            message: "Name this layout for \(currentName).",
+            message: "Name this layout for \(currentName). It's replaced by what is open now: apps that aren't running lose their saved place.",
             initial: currentLayout?.name ?? currentName,
             confirm: "Save"
         ) else { return }
         Task {
             // Manual save replaces the layout, forgetting apps not running now.
-            var fresh = await WindowManager.capture()
+            var fresh = await WindowManager.capture().layout
+            guard !fresh.windows.isEmpty else {
+                lastEvent = "Nothing saved: no windows found"
+                return
+            }
             fresh.name = name
             store.save(fresh)
+            autosavePausedFor = nil
             refreshDisplays()
             reloadLayouts()
             lastEvent = "Saved \"\(name)\" (\(fresh.windows.count) windows) at \(Self.time())"
@@ -126,6 +139,8 @@ final class AppModel: ObservableObject {
 
     func restoreNow() {
         guard isTrusted else { return requestAccess() }
+        guard !isRestoring else { return }
+        autosavePausedFor = nil
         guard let layout = currentLayout else {
             lastEvent = "No saved layout for these displays"
             return
@@ -150,7 +165,7 @@ final class AppModel: ObservableObject {
             if stored.signature == currentSignature { restoreSnapshot(stored) } else { lastEvent = "Saved edits to \"\(stored.name)\"" }
             return
         }
-        if edited.signature == currentSignature, isTrusted {
+        if edited.signature == currentSignature, isTrusted, !isRestoring {
             autosaveSuppressedUntil = Date().addingTimeInterval(8)
             Task {
                 let moved = await WindowManager.restore(stored)
@@ -261,9 +276,15 @@ final class AppModel: ObservableObject {
             return
         }
         guard url.host == "snapshot" else { return }
+        // At most one link every two seconds: a page or script looping a link can't flood the snapshot list.
+        guard Date().timeIntervalSince(lastLinkAt) >= 2 else { return }
+        lastLinkAt = Date()
+        // Names come from outside: printable characters only, 100 at most; empty means no name.
         let name = URLComponents(url: url, resolvingAgainstBaseURL: false)?
             .queryItems?.first { $0.name == "name" }?.value
-            .map { String($0.prefix(100)) }
+            .map { String(String($0.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) && !CharacterSet.newlines.contains($0) })
+                .trimmingCharacters(in: .whitespaces).prefix(100)) }
+            .flatMap { $0.isEmpty ? nil : $0 }
         switch url.path {
         case "/save":
             guard isTrusted else { return requestAccess() }
@@ -277,8 +298,11 @@ final class AppModel: ObservableObject {
             }
         case "/restore":
             refreshDisplays()
-            // Newest first, so a name used several times means the latest one.
-            let candidates = snapshots.filter { $0.signature == currentSignature }
+            // Newest first, so a name used several times means the latest one. Without a name, the automatic
+            // startup snapshot doesn't count: it would just be roughly what's on screen now.
+            let candidates = snapshots.filter {
+                $0.signature == currentSignature && (name != nil || $0.id != Self.startupSnapshotID)
+            }
             if let snapshot = name.map({ n in candidates.first { $0.name == n } }) ?? candidates.first {
                 restoreSnapshot(snapshot)
             } else {
@@ -343,7 +367,12 @@ final class AppModel: ObservableObject {
     private func handleSettledDisplays() {
         refreshDisplays()
         guard autoRestore, isTrusted, !isRestoring, let layout = currentLayout else {
-            lastEvent = "Displays changed: \(currentName)"
+            if !autoRestore, currentLayout != nil {
+                autosavePausedFor = currentSignature
+                lastEvent = "Displays changed. Layout not updated until you restore or update it."
+            } else {
+                lastEvent = "Displays changed: \(currentName)"
+            }
             return
         }
         Task {
@@ -372,15 +401,18 @@ final class AppModel: ObservableObject {
 
     private func autosaveTick() {
         refreshDisplays()
-        guard autoSave, isTrusted, !isRestoring, !isAutosaving, Date() >= autosaveSuppressedUntil else { return }
+        if autosavePausedFor != currentSignature { autosavePausedFor = nil }
+        guard autoSave, isTrusted, !isRestoring, !isAutosaving, autosavePausedFor == nil,
+              Date() >= autosaveSuppressedUntil else { return }
         isAutosaving = true
         Task {
             defer { isAutosaving = false }
-            let fresh = await WindowManager.capture()
+            let (fresh, unreachable) = await WindowManager.capture()
             // The capture took a moment: skip it if displays changed or a restore started meanwhile.
             guard !fresh.windows.isEmpty, fresh.signature == currentSignature, !isRestoring,
-                  Date() >= autosaveSuppressedUntil else { return }
-            let running = Set(WindowManager.regularApps().compactMap(\.bundleIdentifier))
+                  autosavePausedFor == nil, Date() >= autosaveSuppressedUntil else { return }
+            // An app that didn't answer keeps its saved windows, like one that isn't running.
+            let running = Set(WindowManager.regularApps().compactMap(\.bundleIdentifier)).subtracting(unreachable)
             let merged = currentLayout.map { $0.merging(fresh, runningBundleIDs: running) } ?? fresh
             guard merged.windows != currentLayout?.windows else { return }
             store.save(merged)

@@ -5,12 +5,17 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - name: Build
-        run: swift build
       - name: Test
         run: swift test
+      - name: Build the app bundle the way a contributor would (no Developer ID)
+        run: CODESIGN_IDENTITY=- scripts/build-app.sh
+      - name: Check the bundle
+        run: codesign --verify --strict build/AutoWindow.app
