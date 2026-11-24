@@ -52,9 +52,11 @@ back with one click.
   - Edits are a draft with undo until you Apply or Save.
 
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/editor-dark.svg">
-    <img src="docs/images/editor-light.svg" alt="A window selected in the layout editor, with resize handles and its size shown." width="400">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/editor-screenshot-dark.png">
+    <img src="docs/images/editor-screenshot-light.png" alt="Screenshot of the Layouts & Snapshots window. A sidebar lists snapshots and automatic layouts. The map shows three displays with windows on them; an Xcode window is selected, with resize handles. A panel on the right shows its display, desktop, exact position and size, and arrange buttons. A table below lists every window." width="820">
   </picture>
+
+  The screenshot uses sample data.
 
 - **Scriptable.** Save and restore snapshots from Shortcuts, Raycast or the terminal:
 
@@ -221,7 +223,6 @@ It's a plain Swift package with no Xcode project; `scripts/build-app.sh` wraps t
 
 ## Roadmap
 
-- A screenshot in this README
 - Per-app exclusions in the UI
 - Creating missing desktops
 
