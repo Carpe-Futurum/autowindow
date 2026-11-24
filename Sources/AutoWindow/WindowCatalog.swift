@@ -6,17 +6,25 @@ import ApplicationServices
 /// The Accessibility API only lists an app's windows on the desktops showing right now. Windows on other
 /// desktops are found by asking for the app's AX elements by number ("remote token"), the same trick
 /// window managers like yabai use; it needs only the Accessibility permission.
+///
+/// Everything here is safe to call off the main thread, and `all` should be: one app can take a second.
 enum WindowCatalog {
-    struct Entry {
+    struct Entry: @unchecked Sendable {
         let window: AXWindow
         let id: CGWindowID
         let bundleID: String
+        let appName: String
         /// Order among the app's windows: front-to-back on visible desktops first, then the others.
         let index: Int
+        let title: String
+        let frame: CGRect
+        /// Spaces the window is on (several only for "all desktops" windows).
+        let spaces: [UInt64]
     }
 
-    static func all(apps: [NSRunningApplication] = WindowManager.regularApps()) -> [Entry] {
+    static func all(apps: [NSRunningApplication]) -> [Entry] {
         let cgByPID = candidateWindowIDs()
+        let visible = Set(Spaces.displays().map(\.current))
         var result: [Entry] = []
         for app in apps {
             guard let bundleID = app.bundleIdentifier else { continue }
@@ -26,38 +34,50 @@ enum WindowCatalog {
                 guard let id = w.windowID, seen.insert(id).inserted else { continue }
                 windows.append((w, id))
             }
-            let missing = (cgByPID[app.processIdentifier] ?? []).subtracting(seen)
-            if !missing.isEmpty {
-                for (w, id) in remoteWindows(of: app, looking: missing) where seen.insert(id).inserted {
+            let hidden = offscreenCandidates(cgByPID[app.processIdentifier] ?? [], notIn: seen, visible: visible)
+            if !hidden.isEmpty {
+                for (w, id) in remoteWindows(of: app, looking: hidden) where seen.insert(id).inserted {
                     windows.append((w, id))
                 }
             }
-            // Windows on other desktops often don't answer the subrole question; the window server already
-            // vouched for them (normal level, real size), so a readable frame is enough.
-            let usable = windows.filter { w, _ in
-                (w.isStandard || (w.subrole == nil && w.frame != nil)) && !w.isMinimized
-            }
-            for (i, (w, id)) in usable.enumerated() {
-                result.append(Entry(window: w, id: id, bundleID: bundleID, index: i))
+            var index = 0
+            for (w, id) in windows {
+                // Windows on other desktops often don't answer the subrole question; the window server already
+                // vouched for them (normal level, real size), so a readable frame is enough.
+                guard !w.isMinimized, let frame = w.frame, w.isStandard || w.subrole == nil else { continue }
+                result.append(Entry(window: w, id: id, bundleID: bundleID, appName: app.localizedName ?? bundleID,
+                                    index: index, title: w.title, frame: frame, spaces: Spaces.spaces(forWindow: id)))
+                index += 1
             }
         }
         return result
     }
 
+    /// Window-server windows AX didn't list that sit on a desktop that isn't showing. Ones on a showing
+    /// desktop that AX left out aren't real windows (tab bars, helper surfaces), so they're never searched for.
+    private static func offscreenCandidates(_ ids: Set<CGWindowID>, notIn seen: Set<CGWindowID>, visible: Set<UInt64>) -> Set<CGWindowID> {
+        ids.subtracting(seen).filter { id in
+            guard !isUnfindable(id) else { return false }
+            let spaces = Spaces.spaces(forWindow: id)
+            return !spaces.isEmpty && visible.isDisjoint(with: spaces)
+        }
+    }
+
     /// Per-app breakdown of what AX and the window server report, for autowindow://debug/catalog.
-    static func diagnostics() -> String {
+    static func diagnostics(apps: [NSRunningApplication]) -> String {
         let cgByPID = candidateWindowIDs()
+        let visible = Set(Spaces.displays().map(\.current))
         var out = ""
-        for app in WindowManager.regularApps() {
+        for app in apps {
             let ax = AXWindow.allElements(of: app)
             let axIDs = Set(ax.compactMap(\.windowID))
             let cg = cgByPID[app.processIdentifier] ?? []
-            let missing = cg.subtracting(axIDs)
+            let hidden = offscreenCandidates(cg, notIn: axIDs, visible: visible)
             let start = Date()
-            let remote = missing.isEmpty ? [] : remoteWindows(of: app, looking: missing)
+            let remote = hidden.isEmpty ? [] : remoteWindows(of: app, looking: hidden)
             out += "\(app.bundleIdentifier ?? "?") pid \(app.processIdentifier)\n"
             out += "  ax: " + ax.map { "\($0.windowID.map(String.init) ?? "nil")[\($0.subrole ?? "-") min=\($0.isMinimized)]" }.joined(separator: " ") + "\n"
-            out += "  cg: \(cg.sorted())  missing: \(missing.sorted())\n"
+            out += "  window server: \(cg.sorted())  on hidden desktops: \(hidden.sorted())\n"
             out += "  remote found: " + remote.map { "\($0.1)[\($0.0.subrole ?? "-")]" }.joined(separator: " ")
                 + String(format: " (%.2fs)\n", Date().timeIntervalSince(start))
         }
@@ -82,12 +102,12 @@ enum WindowCatalog {
         return out
     }
 
-    /// Walks the app's AX element numbers until every missing window is found (or a time limit passes).
-    private static func remoteWindows(of app: NSRunningApplication, looking missing: Set<CGWindowID>) -> [(AXWindow, CGWindowID)] {
+    /// Walks the app's AX element numbers until every wanted window is found (or a time limit passes).
+    private static func remoteWindows(of app: NSRunningApplication, looking wanted: Set<CGWindowID>) -> [(AXWindow, CGWindowID)] {
         guard let create = AXPrivate.createWithRemoteToken else { return [] }
-        var remaining = missing
+        var remaining = wanted
         var found: [(AXWindow, CGWindowID)] = []
-        let deadline = Date().addingTimeInterval(1.5)
+        let deadline = Date().addingTimeInterval(0.75)
         var token = Data(count: 20)
         token.withUnsafeMutableBytes { raw in
             raw.storeBytes(of: app.processIdentifier, toByteOffset: 0, as: Int32.self)
@@ -104,7 +124,23 @@ enum WindowCatalog {
             remaining.remove(id)
             found.append((w, id))
         }
+        remaining.forEach(noteMiss)
         return found
+    }
+
+    // Window IDs that two searches couldn't find: not searched again, so one odd window
+    // doesn't cost every later capture its full time limit. IDs aren't reused within a login session.
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var misses: [CGWindowID: Int] = [:]
+
+    private static func isUnfindable(_ id: CGWindowID) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return (misses[id] ?? 0) >= 2
+    }
+
+    private static func noteMiss(_ id: CGWindowID) {
+        lock.lock(); defer { lock.unlock() }
+        misses[id, default: 0] += 1
     }
 }
 
@@ -134,15 +170,12 @@ extension AXWindow {
         return elements.map { AXWindow(element: $0, app: app) }
     }
 
-    var role: String? {
-        var raw: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &raw) == .success else { return nil }
-        return raw as? String
-    }
+    var role: String? { string(kAXRoleAttribute) }
+    var subrole: String? { string(kAXSubroleAttribute) }
 
-    var subrole: String? {
+    private func string(_ attribute: String) -> String? {
         var raw: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &raw) == .success else { return nil }
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &raw) == .success else { return nil }
         return raw as? String
     }
 
@@ -155,9 +188,12 @@ extension AXWindow {
     var grabPoint: CGPoint? {
         guard let frame else { return nil }
         var raw: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXZoomButtonAttribute as CFString, &raw) == .success, let raw {
+        if AXUIElementCopyAttributeValue(element, kAXZoomButtonAttribute as CFString, &raw) == .success, let raw,
+           CFGetTypeID(raw) == AXUIElementGetTypeID() {
             let button = AXWindow(element: raw as! AXUIElement, app: app)
-            if let b = button.frame { return CGPoint(x: b.maxX + 8, y: b.midY) }
+            if let b = button.frame, frame.contains(CGPoint(x: b.maxX + 8, y: b.midY)) {
+                return CGPoint(x: b.maxX + 8, y: b.midY)
+            }
         }
         return CGPoint(x: frame.minX + 80, y: frame.minY + 10)
     }

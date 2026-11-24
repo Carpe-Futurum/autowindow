@@ -1,3 +1,4 @@
+import AppKit
 import AutoWindowCore
 import SwiftUI
 
@@ -5,10 +6,12 @@ import SwiftUI
 struct LayoutsWindow: View {
     @ObservedObject var model: AppModel
     @State private var selection: String?
+    /// The open layout has edits that aren't saved; switching away asks first.
+    @State private var dirty = false
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $selection) {
+            List(selection: guardedSelection) {
                 Section("Snapshots") {
                     if model.snapshots.isEmpty {
                         Text("Save one with ⌘S in the menu").font(.caption).foregroundStyle(.secondary)
@@ -22,7 +25,7 @@ struct LayoutsWindow: View {
             .navigationSplitViewColumnWidth(min: 190, ideal: 230)
         } detail: {
             if let layout = (model.snapshots + model.layouts).first(where: { $0.storeKey == selection }) {
-                LayoutDetail(model: model, layout: layout)
+                LayoutDetail(model: model, layout: layout, dirty: $dirty)
                     .id(layout.storeKey)
             } else {
                 Text(model.layouts.isEmpty ? "No saved layouts yet" : "Select a layout")
@@ -37,6 +40,29 @@ struct LayoutsWindow: View {
                     ?? model.currentLayout?.storeKey ?? model.layouts.first?.storeKey
             }
         }
+    }
+
+    /// Selection that asks before throwing away unsaved edits.
+    private var guardedSelection: Binding<String?> {
+        Binding(
+            get: { selection },
+            set: { new in
+                guard new != selection else { return }
+                guard dirty else { selection = new; return }
+                // Ask after this update pass; a modal alert inside a selection change confuses the list.
+                DispatchQueue.main.async {
+                    let alert = NSAlert()
+                    alert.messageText = "Discard unsaved edits?"
+                    alert.informativeText = "This layout has edits that haven't been applied or saved."
+                    alert.addButton(withTitle: "Discard").hasDestructiveAction = true
+                    alert.addButton(withTitle: "Keep Editing")
+                    if alert.runModal() == .alertFirstButtonReturn {
+                        dirty = false
+                        selection = new
+                    }
+                }
+            }
+        )
     }
 
     private func row(_ layout: AutoWindowCore.Layout) -> some View {
@@ -66,6 +92,7 @@ struct LayoutsWindow: View {
 private struct LayoutDetail: View {
     @ObservedObject var model: AppModel
     let layout: AutoWindowCore.Layout
+    @Binding var dirty: Bool
 
     @State private var draft: AutoWindowCore.Layout
     /// The stored windows the draft started from; the draft is "edited" when it differs.
@@ -78,9 +105,10 @@ private struct LayoutDetail: View {
     /// Desktop shown in the picture for displays with several desktops; nil shows all at once.
     @State private var desktop: Int?
 
-    init(model: AppModel, layout: AutoWindowCore.Layout) {
+    init(model: AppModel, layout: AutoWindowCore.Layout, dirty: Binding<Bool>) {
         self.model = model
         self.layout = layout
+        _dirty = dirty
         _draft = State(initialValue: layout)
         _base = State(initialValue: layout.windows)
         _name = State(initialValue: layout.name)
@@ -120,6 +148,7 @@ private struct LayoutDetail: View {
                 undoStack = []
             }
         }
+        .onChange(of: isEdited) { _, edited in dirty = edited }
         .onDisappear(perform: commitName)
         .confirmationDialog("Forget \"\(layout.name)\"?", isPresented: $confirmForget) {
             Button("Forget", role: .destructive) { model.forget(layout) }

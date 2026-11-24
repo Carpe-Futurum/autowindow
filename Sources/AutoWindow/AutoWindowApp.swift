@@ -36,6 +36,9 @@ struct MenuContent: View {
         Text("Displays: \(model.currentName)")
         Text(model.currentLayout.map { "Layout: \($0.name) (\($0.windows.count) windows)" } ?? "No saved layout for these displays")
         Text(model.lastEvent)
+        if model.desktopsReorder {
+            Button("⚠︎ macOS Rearranges Your Desktops — Turn Off…") { model.openDesktopSettings() }
+        }
 
         Divider()
 
@@ -53,7 +56,7 @@ struct MenuContent: View {
                     Text(snapshotDetail(snapshot))
                     Divider()
                     Button("Rename…") { model.rename(snapshot) }
-                    Button("Delete") { model.forget(snapshot) }
+                    Button("Delete…") { model.confirmForget(snapshot) }
                 }
             }
             if !elsewhere.isEmpty {
@@ -64,7 +67,7 @@ struct MenuContent: View {
                             Text(snapshotDetail(snapshot))
                             Divider()
                             Button("Rename…") { model.rename(snapshot) }
-                            Button("Delete") { model.forget(snapshot) }
+                            Button("Delete…") { model.confirmForget(snapshot) }
                         }
                     }
                 }
@@ -83,6 +86,7 @@ struct MenuContent: View {
         Toggle("Restore When Displays Change", isOn: $model.autoRestore)
         Toggle("Restore Apps When They Launch", isOn: $model.restoreOnAppLaunch)
         Toggle("Keep Layout Updated Automatically", isOn: $model.autoSave)
+        Toggle("Allow Control by autowindow:// Links", isOn: $model.allowLinks)
         Toggle("Launch at Login", isOn: $model.launchAtLogin)
 
         if !model.layouts.isEmpty || !model.snapshots.isEmpty {
@@ -97,7 +101,7 @@ struct MenuContent: View {
                     Menu("\(layout.signature == model.currentSignature ? "● " : "")\(layout.name) (\(layout.windows.count))") {
                         Text("Updated \(layout.updatedAt.formatted(date: .abbreviated, time: .shortened))")
                         Button("Rename…") { model.rename(layout) }
-                        Button("Forget") { model.forget(layout) }
+                        Button("Forget…") { model.confirmForget(layout) }
                     }
                 }
             }

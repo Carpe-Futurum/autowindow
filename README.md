@@ -9,13 +9,15 @@ back with one click.
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-lightgrey)
 ![Swift 6](https://img.shields.io/badge/Swift-6-orange)
+[![Test](https://github.com/Carpe-Futurum/autowindow/actions/workflows/test.yml/badge.svg)](https://github.com/Carpe-Futurum/autowindow/actions/workflows/test.yml)
 
 ## Features
 
 - **Automatic layouts per monitor setup.** AutoWindow remembers the window arrangement for each set of
   connected displays (laptop only, laptop + one monitor, the full desk…). When displays change (dock or
   undock, monitor on or off, wake from sleep) it puts every window back. When an app launches, its windows go
-  to their remembered place. The layout updates itself every 30 seconds.
+  to their remembered place. The layout updates itself every 30 seconds and covers windows on every desktop
+  (they keep the desktop they're on; only snapshots move windows between desktops).
 - **Snapshots with desktops (Spaces).** Press ⌘S in the menu to save a named snapshot of every window on every
   display *and* every desktop. Restoring moves each window back to its display, desktop, position and size,
   and shows the desktops that were showing when you saved. A snapshot is also taken shortly after AutoWindow
@@ -34,8 +36,10 @@ back with one click.
   open "autowindow://snapshot/restore?name=Desk"
   ```
 
-  Without a name, restore picks the newest snapshot for the connected displays. Saving under an existing name
-  replaces that snapshot.
+  Links are **off by default**, because any app or web page can open one; turn on **Allow Control by
+  autowindow:// Links** in the menu to use them. Without a name, restore picks the newest snapshot for the
+  connected displays; with a name used several times, the newest of those. A link always saves a new snapshot
+  and never replaces or deletes one.
 
 ## Install
 
@@ -60,16 +64,28 @@ AutoWindow moves windows through the macOS Accessibility API. On first launch it
 **System Settings → Privacy & Security → Accessibility → AutoWindow**. The menu shows a "Grant Accessibility
 Access…" item until it's on.
 
-### 2. Desktop shortcuts (for snapshots with several desktops)
+### 2. Stop macOS from rearranging desktops (for snapshots with several desktops)
 
-Turn on **System Settings → Keyboard → Keyboard Shortcuts… → Mission Control → Switch to Desktop 1, 2, 3…** for
-the desktops you use. AutoWindow reads whatever keys you assigned. Without these shortcuts, windows still
-get the right display, position and size, and the restore message says which shortcuts are missing.
+Turn **off** **System Settings → Desktop & Dock → Mission Control → Automatically rearrange Spaces based on
+most recent use**. It's on by default, and while it's on macOS reorders your desktops, so "desktop 3" in a
+snapshot can be a different desktop a day later. AutoWindow shows a warning in its menu while it's on.
+
+### 3. Desktop shortcuts (for snapshots with several desktops)
+
+AutoWindow switches desktops with your Mission Control keyboard shortcuts (**System Settings → Keyboard →
+Keyboard Shortcuts… → Mission Control**), whatever keys you assigned:
+
+- **Switch to Desktop 1, 2, 3…** (off by default): fastest. Turn them on for the desktops you use.
+- **Move left / right a space** (Ctrl+← / Ctrl+→, on by default): used when a "Switch to Desktop N" shortcut is
+  off or doesn't land on the expected desktop. Slower, one desktop per step.
+
+With both kinds off, windows still get the right display, position and size, and the restore message says
+which shortcuts are missing.
 
 ### Signing and rebuilds
 
 `scripts/build-app.sh` signs with the first "Developer ID Application" identity in your keychain, if you have
-one; set `CODESIGN_IDENTITY` to use a different one. Without one the app is ad-hoc signed, and macOS treats
+one, with the hardened runtime; set `CODESIGN_IDENTITY` to use a different one. Without one the app is ad-hoc signed, and macOS treats
 every rebuild as a new app. In that case remove AutoWindow from the Accessibility list and add it again after
 each rebuild.
 
@@ -82,9 +98,11 @@ each rebuild.
 | Update Automatic Layout… | Save the automatic layout for these displays now, with a name |
 | Restore Automatic Layout (⌘R) | Put windows back to the automatic layout |
 | Show Layouts & Snapshots… (⌘L) | Open the visual editor |
+| *snapshot or layout* → Delete… / Forget… | Delete it, after a confirmation |
 | Restore When Displays Change | Restore automatically on dock/undock, monitor changes and wake |
 | Restore Apps When They Launch | Place an app's windows when it starts |
 | Keep Layout Updated Automatically | Update the automatic layout every 30 s |
+| Allow Control by autowindow:// Links | Let links save and restore snapshots (off by default) |
 
 ## How desktops (Spaces) work
 
@@ -96,6 +114,10 @@ Desktop N" shortcut, and lets go. The pointer is put back afterwards.
 Limitations:
 
 - The screen visibly flips through desktops for a few seconds during a restore. Don't use the mouse meanwhile.
+  **Hold Esc** to stop: the window being moved is released and the rest are left where they are.
+- Only open windows are placed. AutoWindow doesn't launch apps or reopen windows; a restore reports how many
+  saved windows weren't open.
+- "Displays have separate Spaces" turned off, and Stage Manager, are untested.
 - AutoWindow doesn't create desktops. If a display now has fewer desktops than in the snapshot, those windows
   go to its last desktop.
 - Full-screen windows are left alone.
@@ -111,7 +133,7 @@ AutoWindow has no network code. It stores window positions, app names and window
 | --- | --- |
 | `layouts.json` | Automatic layouts, one per set of displays |
 | `snapshots.json` | Named snapshots |
-| `events.log` | Restore steps, for troubleshooting |
+| `events.log` | Restore steps, for troubleshooting (starts over at 256 KB) |
 
 Nothing leaves your Mac.
 
@@ -136,7 +158,7 @@ Nothing leaves your Mac.
   then by window order within the app.
 - Autosave pauses for about 12 s after a display change, so the scrambled state macOS leaves behind isn't saved
   over the good layout.
-- `autowindow://debug/catalog` writes `debug-catalog.txt` next to the layouts: what the Accessibility API and
+- With links allowed, `autowindow://debug/catalog` writes `debug-catalog.txt` next to the layouts: what the Accessibility API and
   the window server report per app.
 
 ## Development
@@ -154,6 +176,7 @@ It's a plain Swift package with no Xcode project; `scripts/build-app.sh` wraps t
 ## Roadmap
 
 - Prebuilt, notarized releases
+- A screenshot in this README
 - Per-app exclusions in the UI
 - Creating missing desktops
 

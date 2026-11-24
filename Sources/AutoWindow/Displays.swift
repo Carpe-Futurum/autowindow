@@ -29,6 +29,9 @@ enum Displays {
             }
     }
 
+    /// UUID of the main display (the one with the menu bar in "one Space for all displays" mode). Thread-safe.
+    static var mainUUID: String { uuidString(for: CGMainDisplayID()) }
+
     static func screen(forUUID uuid: String) -> NSScreen? {
         NSScreen.screens.first { screen in
             (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)

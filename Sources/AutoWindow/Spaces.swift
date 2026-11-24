@@ -4,8 +4,9 @@ import CoreGraphics
 /// Mission Control desktops ("Spaces"), read through SkyLight. These are private calls, but read-only ones
 /// that work with System Integrity Protection on. Moving windows between desktops is done elsewhere
 /// (`SpaceMover`) by dragging, because the private "move window to space" call no longer works without SIP off.
+/// Safe to call off the main thread.
 enum Spaces {
-    struct Display {
+    struct Display: Sendable {
         let uuid: String
         /// User desktops in Mission Control order; full-screen app spaces are left out.
         let desktops: [UInt64]
@@ -20,11 +21,10 @@ enum Spaces {
     static func displays() -> [Display] {
         guard let conn = SL.connection,
               let raw = SL.copyManagedDisplaySpaces?(conn)?.takeRetainedValue() as? [[String: Any]] else { return [] }
-        let mainUUID = Displays.current().first(where: \.isMain)?.uuid
         return raw.compactMap { entry in
             guard var uuid = entry["Display Identifier"] as? String else { return nil }
             // "Main" when Displays-have-separate-Spaces is off: one set of desktops for all displays.
-            if uuid == "Main", let mainUUID { uuid = mainUUID }
+            if uuid == "Main" { uuid = Displays.mainUUID }
             let spaces = entry["Spaces"] as? [[String: Any]] ?? []
             let desktops = spaces.filter { ($0["type"] as? Int) == 0 }.compactMap { $0["id64"] as? UInt64 }
             let current = (entry["Current Space"] as? [String: Any])?["id64"] as? UInt64 ?? 0
@@ -49,6 +49,13 @@ enum Spaces {
         return nil
     }
 
+    /// Mission Control's "Automatically rearrange Spaces based on most recent use" (on unless turned off).
+    /// While it's on, macOS reorders desktops, so "desktop 3" in a snapshot can be a different desktop later.
+    static var reordersAutomatically: Bool {
+        CFPreferencesAppSynchronize("com.apple.dock" as CFString)
+        return (CFPreferencesCopyAppValue("mru-spaces" as CFString, "com.apple.dock" as CFString) as? Bool) ?? true
+    }
+
     private enum SL {
         typealias ConnFn = @convention(c) () -> Int32
         typealias DisplaySpacesFn = @convention(c) (Int32) -> Unmanaged<CFArray>?
@@ -67,11 +74,17 @@ enum Spaces {
 
 /// Appends to ~/Library/Application Support/AutoWindow/events.log (restore steps, for troubleshooting).
 enum EventLog {
+    private static let maxBytes = 256 * 1024
+
     static func write(_ line: String) {
         let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("AutoWindow/events.log")
         let stamp = Date().formatted(.iso8601.time(includingFractionalSeconds: true))
         let data = Data("\(stamp) \(line)\n".utf8)
+        // Start over when it gets big; it's a troubleshooting aid, not a history.
+        if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > maxBytes {
+            try? FileManager.default.removeItem(at: url)
+        }
         if let h = try? FileHandle(forWritingTo: url) {
             h.seekToEndOfFile(); h.write(data); try? h.close()
         } else {
@@ -80,19 +93,32 @@ enum EventLog {
     }
 }
 
-/// The "Switch to Desktop N" keyboard shortcuts from System Settings → Keyboard → Keyboard Shortcuts → Mission Control.
+/// Mission Control keyboard shortcuts from System Settings → Keyboard → Keyboard Shortcuts → Mission Control.
 enum DesktopShortcuts {
     struct Shortcut { let keyCode: CGKeyCode; let flags: CGEventFlags }
 
-    /// Shortcut for Desktop `number` (1…16), nil if it's turned off.
+    /// "Switch to Desktop N" (1…16); nil if it's turned off, which is the macOS default.
     static func shortcut(forDesktop number: Int) -> Shortcut? {
-        guard (1...16).contains(number),
-              let all = UserDefaults(suiteName: "com.apple.symbolichotkeys")?.dictionary(forKey: "AppleSymbolicHotKeys"),
-              let entry = all[String(117 + number)] as? [String: Any],
-              (entry["enabled"] as? Bool) == true || (entry["enabled"] as? Int) == 1,
+        guard (1...16).contains(number), let entry = entry(117 + number), entry.enabled else { return nil }
+        return entry.shortcut
+    }
+
+    /// "Move left a space" / "Move right a space": Ctrl+← and Ctrl+→ unless the user changed or disabled them.
+    static var previousDesktop: Shortcut? { arrow(79, defaultKey: 123) }
+    static var nextDesktop: Shortcut? { arrow(81, defaultKey: 124) }
+
+    private static func arrow(_ id: Int, defaultKey: CGKeyCode) -> Shortcut? {
+        if let entry = entry(id) { return entry.enabled ? entry.shortcut : nil }
+        return Shortcut(keyCode: defaultKey, flags: [.maskControl, .maskSecondaryFn])
+    }
+
+    private static func entry(_ id: Int) -> (enabled: Bool, shortcut: Shortcut)? {
+        guard let all = UserDefaults(suiteName: "com.apple.symbolichotkeys")?.dictionary(forKey: "AppleSymbolicHotKeys"),
+              let entry = all[String(id)] as? [String: Any],
               let params = (entry["value"] as? [String: Any])?["parameters"] as? [Int], params.count == 3
         else { return nil }
-        return Shortcut(keyCode: CGKeyCode(params[1]), flags: CGEventFlags(rawValue: UInt64(params[2])))
+        let enabled = (entry["enabled"] as? Bool) == true || (entry["enabled"] as? Int) == 1
+        return (enabled, Shortcut(keyCode: CGKeyCode(params[1]), flags: CGEventFlags(rawValue: UInt64(params[2]))))
     }
 
     static func press(_ s: Shortcut) {

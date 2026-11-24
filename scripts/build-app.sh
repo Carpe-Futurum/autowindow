@@ -19,7 +19,10 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/AutoWindow"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
-codesign --force --sign "$IDENTITY" --identifier nl.carpefuturum.autowindow "$APP"
+# Hardened runtime (needed for notarization) whenever there's a real identity.
+RUNTIME=()
+[ "$IDENTITY" != "-" ] && RUNTIME=(--options runtime)
+codesign --force --sign "$IDENTITY" "${RUNTIME[@]}" --identifier nl.carpefuturum.autowindow "$APP"
 echo "Built $APP (signed: $IDENTITY)"
 
 TARGET="$APP"
