@@ -2,6 +2,15 @@
 
 **A macOS menu bar app that remembers where your windows go, on every monitor and every desktop, and puts them back.**
 
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.svg">
+  <img src="docs/images/hero-light.svg" alt="Windows arranged across a laptop, a main monitor and a portrait monitor. When the monitors are unplugged the windows pile up on the laptop; when they are plugged back in, AutoWindow moves every window back to its place." width="820">
+</picture>
+</p>
+
+<p align="center"><sub>Arranged → unplugged, macOS piles the windows on the laptop → plugged back in, AutoWindow puts each one back.</sub></p>
+
 Plug in your monitors and your windows return to where they were. Save a named snapshot of your whole setup
 (which window is on which monitor, on which Mission Control desktop, at which position and size) and bring it
 back with one click.
@@ -18,10 +27,22 @@ back with one click.
   undock, monitor on or off, wake from sleep) it puts every window back. When an app launches, its windows go
   to their remembered place. The layout updates itself every 30 seconds and covers windows on every desktop
   (they keep the desktop they're on; only snapshots move windows between desktops).
+
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/automatic-dark.svg">
+    <img src="docs/images/automatic-light.svg" alt="Windows piled up on a laptop screen, then spread back across two monitors." width="400">
+  </picture>
+
 - **Snapshots with desktops (Spaces).** Press ⌘S in the menu to save a named snapshot of the open windows on
   every display *and* every desktop (minimized and full-screen windows are left out). Restoring moves each window back to its display, desktop, position and size,
   and shows the desktops that were showing when you saved. A snapshot is also taken shortly after AutoWindow
   starts.
+
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/snapshots-dark.svg">
+    <img src="docs/images/snapshots-light.svg" alt="Four desktops side by side, each holding different windows, saved together as one snapshot." width="400">
+  </picture>
+
 - **Visual editor.** The Layouts & Snapshots window (⌘L) draws each layout as a map of your displays with every
   window on it.
   - Drag windows to move them (across displays too) and drag the handles to resize.
@@ -29,6 +50,12 @@ back with one click.
   - Arrow keys nudge the selected window.
   - Type exact positions and sizes, or use left/right/top/bottom half, fill and center.
   - Edits are a draft with undo until you Apply or Save.
+
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/editor-dark.svg">
+    <img src="docs/images/editor-light.svg" alt="A window selected in the layout editor, with resize handles and its size shown." width="400">
+  </picture>
+
 - **Scriptable.** Save and restore snapshots from Shortcuts, Raycast or the terminal:
 
   ```bash
