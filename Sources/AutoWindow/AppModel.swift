@@ -91,29 +91,23 @@ final class AppModel: ObservableObject {
 
     // MARK: - Actions
 
-    /// Asks for a name, then saves. Prefilled with the current name, so Return keeps it.
+    /// Updates the automatic layout for these displays right now (what autosave does every 30 seconds).
+    /// Apps that aren't running keep their remembered place.
     func saveNow() {
         guard isTrusted else { return requestAccess() }
         refreshDisplays()
-        guard let name = Self.promptForName(
-            title: "Save Layout",
-            message: "Name this layout for \(currentName). It's replaced by what is open now: apps that aren't running lose their saved place.",
-            initial: currentLayout?.name ?? currentName,
-            confirm: "Save"
-        ) else { return }
         Task {
-            // Manual save replaces the layout, forgetting apps not running now.
-            var fresh = await WindowManager.capture().layout
+            let (fresh, unreachable) = await WindowManager.capture()
             guard !fresh.windows.isEmpty else {
-                lastEvent = "Nothing saved: no windows found"
+                lastEvent = "Nothing remembered: no windows found"
                 return
             }
-            fresh.name = name
-            store.save(fresh)
+            let running = Set(WindowManager.regularApps().compactMap(\.bundleIdentifier)).subtracting(unreachable)
+            let merged = currentLayout.map { $0.merging(fresh, runningBundleIDs: running) } ?? fresh
+            store.save(merged)
             autosavePausedFor = nil
-            refreshDisplays()
             reloadLayouts()
-            lastEvent = "Saved \"\(name)\" (\(fresh.windows.count) windows) at \(Self.time())"
+            lastEvent = "Remembered \(merged.windows.count) window positions at \(Self.time())"
         }
     }
 
@@ -142,13 +136,13 @@ final class AppModel: ObservableObject {
         guard !isRestoring else { return }
         autosavePausedFor = nil
         guard let layout = currentLayout else {
-            lastEvent = "No saved layout for these displays"
+            lastEvent = "Nothing remembered for these monitors yet"
             return
         }
         autosaveSuppressedUntil = Date().addingTimeInterval(8)
         Task {
             let moved = await WindowManager.restore(layout)
-            lastEvent = "Restored \(moved) windows at \(Self.time())"
+            lastEvent = "Put \(moved) windows back at \(Self.time())"
         }
     }
 
@@ -369,7 +363,7 @@ final class AppModel: ObservableObject {
         guard autoRestore, isTrusted, !isRestoring, let layout = currentLayout else {
             if !autoRestore, currentLayout != nil {
                 autosavePausedFor = currentSignature
-                lastEvent = "Displays changed. Layout not updated until you restore or update it."
+                lastEvent = "Monitors changed. Positions aren't remembered again until you put windows back or remember them."
             } else {
                 lastEvent = "Displays changed: \(currentName)"
             }
@@ -377,7 +371,7 @@ final class AppModel: ObservableObject {
         }
         Task {
             let moved = await WindowManager.restore(layout)
-            lastEvent = "Displays changed, restored \(moved) windows"
+            lastEvent = "Monitors changed, put \(moved) windows back"
             // Some apps re-layout a moment later; a second pass catches stragglers.
             try? await Task.sleep(for: .seconds(3))
             if !isRestoring, let layout = currentLayout { await WindowManager.restore(layout) }

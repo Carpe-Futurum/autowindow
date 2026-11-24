@@ -20,6 +20,21 @@ back with one click.
 ![Swift 6 toolchain](https://img.shields.io/badge/Swift-6%20toolchain-orange)
 [![Test](https://github.com/Carpe-Futurum/autowindow/actions/workflows/test.yml/badge.svg)](https://github.com/Carpe-Futurum/autowindow/actions/workflows/test.yml)
 
+## Two things it does
+
+AutoWindow does two separate jobs. They share the idea of "put windows back", but they are not the same:
+
+| | **Automatic** | **Snapshots** |
+| --- | --- | --- |
+| What it is | The app's own memory of where windows sit for the monitors connected now | A named save you make of your whole setup |
+| Who saves it | The app, every 30 seconds | You, with ⌘S |
+| How many | One per set of monitors | As many as you like |
+| When windows go back | By itself: when monitors change, on wake, when an app opens | When you pick the snapshot from the menu |
+| Desktops (Spaces) | Left alone: a window stays on the desktop it's on | Restored: each window goes back to its desktop |
+| Good for | Docking and undocking without re-arranging | Switching between setups, such as "Deep work" and "Calls" |
+
+You can use either without the other.
+
 ## Features
 
 - **Automatic layouts per monitor setup.** AutoWindow remembers the window arrangement for each set of
@@ -125,18 +140,36 @@ each rebuild.
 
 ## Using it
 
+The menu has two groups, matching the two jobs.
+
+**Snapshots — saved by you, desktops included**
+
 | Menu item | What it does |
 | --- | --- |
-| Save Snapshot… (⌘S) | Name and save every window on every display and desktop |
+| Save Snapshot… (⌘S) | Name and save every open window on every display and desktop |
 | *snapshot name* → Restore | Put every window back as saved (the screen flips through desktops briefly) |
-| Update Automatic Layout… | Save the automatic layout for these displays now, with a name |
-| Restore Automatic Layout (⌘R) | Put windows back to the automatic layout |
+| *snapshot name* → Rename… / Delete… | Rename it, or delete it after a confirmation |
+| For Other Monitors | Snapshots saved with a different set of monitors |
+
+**Automatic — for these monitors, no desktops**
+
+| Menu item | What it does |
+| --- | --- |
+| *N windows remembered · updated 15:02* | What the app currently remembers for the connected monitors |
+| Put Windows Back Now (⌘R) | Move open windows to their remembered positions |
+| Remember Positions as I Work | Update the remembered positions every 30 s |
+| Remember Positions Now | Shown only when the switch above is off: update them once |
+| Put Windows Back When Monitors Change | Do it automatically on dock/undock, monitor changes and wake |
+| Place an App's Windows When It Opens | Put an app's windows in their remembered place when it starts |
+
+**Everything else**
+
+| Menu item | What it does |
+| --- | --- |
 | Show Layouts & Snapshots… (⌘L) | Open the visual editor |
-| *snapshot or layout* → Delete… / Forget… | Delete it, after a confirmation |
-| Restore When Displays Change | Restore automatically on dock/undock, monitor changes and wake |
-| Restore Apps When They Launch | Place an app's windows when it starts |
-| Keep Layout Updated Automatically | Update the automatic layout every 30 s |
 | Allow Control by autowindow:// Links | Let links save and restore snapshots (off by default) |
+| Launch at Login | Start AutoWindow when you log in |
+| Show Data Folder | Open the folder with the saved layouts and snapshots |
 
 ## How desktops (Spaces) work
 
