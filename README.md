@@ -121,8 +121,10 @@ Limitations:
 - The screen visibly flips through desktops for a few seconds during a restore. Don't use the mouse meanwhile.
   **Hold Esc** to stop moving windows between desktops: the window being carried is released. Positions and
   sizes have already been applied by then, and the displays stay on whichever desktop they were showing.
-- Before pressing the mouse, AutoWindow checks that the window it wants is the frontmost thing at that spot.
-  If it isn't (a sheet is open, another window floats on top), that window keeps its desktop.
+- AutoWindow takes hold of a window by the top few points of its title bar, and only after checking that the
+  window is frontmost there. It then checks the window really follows the mouse before switching desktop. If
+  it can't get hold (a sheet is open, another window floats on top, the app draws its own title bar), that
+  window keeps its desktop and the result says so.
 - Only open windows are placed. AutoWindow doesn't launch apps or reopen windows; a restore reports how many
   saved windows it couldn't find (closed, minimized, or their app didn't answer).
 - Finding windows on desktops that aren't showing is best effort: an app that is busy at that moment can be

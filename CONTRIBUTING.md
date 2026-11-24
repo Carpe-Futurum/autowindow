@@ -15,6 +15,7 @@ Window behaviour depends heavily on the setup, so please include:
 Check files before attaching them: they can contain window titles.
 
 For security problems, see [SECURITY.md](SECURITY.md) instead of opening an issue.
+Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Building
 
@@ -34,3 +35,12 @@ every rebuild: remove AutoWindow under System Settings â†’ Privacy & Security â†
 - Run `swift test`.
 - Say how you tested window behaviour: macOS version, displays, desktops. Much of it can't be unit-tested.
 - Don't add network code, and don't require turning off System Integrity Protection.
+
+## Testing desktop moves
+
+`autowindow://` links are the easiest way to drive a restore while watching `events.log`. Turn on "Allow
+Control by autowindow:// Links" first. To exercise the Ctrl+arrow path instead of the numbered shortcuts:
+
+```bash
+defaults write nl.carpefuturum.autowindow arrowShortcutsOnly -bool true   # relaunch; delete the key after
+```

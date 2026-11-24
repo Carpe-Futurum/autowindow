@@ -140,24 +140,15 @@ enum SpaceMover {
         window.raise()
         try? await Task.sleep(for: .milliseconds(250))
 
-        guard let frame = window.frame, let grab = window.grabPoint else { return .failed }
-        let offset = CGPoint(x: grab.x - frame.minX, y: grab.y - frame.minY)
-        // Stay off the very top edge of the display: dragging a window there opens Mission Control.
-        let drop = CGPoint(x: target.minX + offset.x, y: max(target.minY + offset.y, display.bounds.minY + 12))
-
-        // Only press the mouse if this window really is what's under the grab point. If raising it didn't
-        // work (a sheet, a floating panel, a slow app), the press would grab something else.
-        guard topWindow(at: grab) == id else {
-            EventLog.write("move window \(id): not frontmost at its title bar, left where it is")
+        // 2. Take hold of the window by its top strip and check that it really follows the mouse.
+        guard let frame = window.frame, let hold = await takeHold(of: window, id: id, frame: frame) else {
+            window.setFrame(target)
+            EventLog.write("move window \(id): couldn't take hold of its title bar, left on its desktop")
             return .failed
         }
-
-        // 2. Hold the title bar and carry it to where it belongs (possibly another display).
-        post(.mouseMoved, at: grab)
-        post(.leftMouseDown, at: grab)
-        try? await Task.sleep(for: .milliseconds(60))
-        post(.leftMouseDragged, at: CGPoint(x: grab.x + 6, y: grab.y))
-        try? await Task.sleep(for: .milliseconds(60))
+        // Carry it to where it belongs (possibly another display). Stay off the very top edge of the
+        // display: dragging a window there opens Mission Control.
+        let drop = CGPoint(x: target.minX + hold.offset.x, y: max(target.minY + hold.offset.y, display.bounds.minY + 12))
         post(.leftMouseDragged, at: drop)
         try? await Task.sleep(for: .milliseconds(120))
 
@@ -185,7 +176,10 @@ enum SpaceMover {
         if display.current == target { return .moved }
 
         let number = Spaces.globalNumber(display: uuid, index: desktop, in: all)
-        if let number, let shortcut = DesktopShortcuts.shortcut(forDesktop: number) {
+        // `defaults write nl.carpefuturum.autowindow arrowShortcutsOnly -bool true` skips the number shortcuts
+        // (for testing the arrow path, or if the numbered ones misbehave on some setup).
+        let arrowsOnly = UserDefaults.standard.bool(forKey: "arrowShortcutsOnly")
+        if !arrowsOnly, let number, let shortcut = DesktopShortcuts.shortcut(forDesktop: number) {
             EventLog.write("switch display \(uuid.prefix(8)) to desktop \(desktop) (Desktop \(number) shortcut), showing \(display.currentIndex ?? 0)")
             DesktopShortcuts.press(shortcut)
             switch await wait(holding: holding, timeout: 2, until: { showing(uuid) == target }) {
@@ -219,6 +213,37 @@ enum SpaceMover {
             }
         }
         return .failed
+    }
+
+    /// Presses the mouse on the window's top strip and nudges it. Returns where the pointer is and its offset
+    /// from the window's corner once the window is following; nil if no spot worked.
+    ///
+    /// Only the top few points are tried: in standard title bars, toolbars and tab strips that strip is empty,
+    /// so a press that fails to start a drag lands on nothing. (Lower down are buttons and tabs, where a
+    /// failed attempt would be a click on one of them.)
+    private static func takeHold(of window: AXWindow, id: CGWindowID, frame: CGRect) async -> (point: CGPoint, offset: CGPoint)? {
+        let nudge = CGPoint(x: 14, y: 10)
+        for fraction in [0.5, 0.3, 0.7] {
+            let press = CGPoint(x: frame.minX + frame.width * fraction, y: frame.minY + 6)
+            // If raising the window didn't work (a sheet, a floating panel, a slow app), something else is there.
+            guard topWindow(at: press) == id else { continue }
+            post(.mouseMoved, at: press)
+            post(.leftMouseDown, at: press)
+            try? await Task.sleep(for: .milliseconds(60))
+            let held = CGPoint(x: press.x + nudge.x, y: press.y + nudge.y)
+            post(.leftMouseDragged, at: CGPoint(x: press.x + nudge.x / 2, y: press.y + nudge.y / 2))
+            try? await Task.sleep(for: .milliseconds(40))
+            post(.leftMouseDragged, at: held)
+            try? await Task.sleep(for: .milliseconds(160))
+            if let now = window.frame, now.size == frame.size,
+               abs(now.minX - frame.minX - nudge.x) <= 4, abs(now.minY - frame.minY - nudge.y) <= 4 {
+                return (held, CGPoint(x: held.x - now.minX, y: held.y - now.minY))
+            }
+            post(.leftMouseUp, at: held)
+            try? await Task.sleep(for: .milliseconds(80))
+            EventLog.write("  window \(id) didn't follow a press at \(Int(press.x)),\(Int(press.y))")
+        }
+        return nil
     }
 
     /// The frontmost ordinary or floating window at a point (menu bar, Dock and screen overlays are ignored).

@@ -204,19 +204,4 @@ extension AXWindow {
     func raise() {
         AXUIElementPerformAction(element, kAXRaiseAction as CFString)
     }
-
-    /// A point on the title bar that's safe to drag: just right of the green zoom button, which keeps clear
-    /// of tabs in apps like Chrome; otherwise a little in from the top-left corner.
-    var grabPoint: CGPoint? {
-        guard let frame else { return nil }
-        var raw: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXZoomButtonAttribute as CFString, &raw) == .success, let raw,
-           CFGetTypeID(raw) == AXUIElementGetTypeID() {
-            let button = AXWindow(element: raw as! AXUIElement, app: app)
-            if let b = button.frame, frame.contains(CGPoint(x: b.maxX + 8, y: b.midY)) {
-                return CGPoint(x: b.maxX + 8, y: b.midY)
-            }
-        }
-        return CGPoint(x: frame.minX + 80, y: frame.minY + 10)
-    }
 }
