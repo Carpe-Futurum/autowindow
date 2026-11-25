@@ -25,6 +25,10 @@ struct AXWindow {
         }
     }
 
+    func unminimize() {
+        AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+    }
+
     /// Standard, non-minimized windows of an app, in AX order (front to back).
     static func windows(of app: NSRunningApplication) -> [AXWindow] {
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
