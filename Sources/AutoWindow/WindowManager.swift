@@ -21,9 +21,9 @@ enum WindowManager {
     }
 
     /// Every standard window on every desktop. The search runs off the main thread (it can take a second or two).
-    static func catalog(onlyBundleID: String? = nil) async -> WindowCatalog.Result {
+    static func catalog(onlyBundleID: String? = nil, includeOutOfSight: Bool = false) async -> WindowCatalog.Result {
         let apps = regularApps().filter { onlyBundleID == nil || $0.bundleIdentifier == onlyBundleID }
-        return await Task.detached(priority: .userInitiated) { WindowCatalog.all(apps: apps) }.value
+        return await Task.detached(priority: .userInitiated) { WindowCatalog.all(apps: apps, includeOutOfSight: includeOutOfSight) }.value
     }
 
     /// Records for the given windows. A window on a single desktop gets that desktop's number; full-screen
@@ -49,7 +49,8 @@ enum WindowManager {
                 displayUUID: display.uuid,
                 relativeFrame: Geometry.relative(entry.frame, to: display),
                 windowID: entry.id,
-                spaceIndex: spaceIndex
+                spaceIndex: spaceIndex,
+                hidden: entry.window.app.isHidden ? true : nil
             ))
         }
         return records

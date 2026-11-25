@@ -20,6 +20,9 @@ enum WindowCatalog {
         let frame: CGRect
         /// Spaces the window is on (several only for "all desktops" windows).
         let spaces: [UInt64]
+        /// In the Dock. These, and a hidden app's windows, are only listed when asked for (`includeOutOfSight`),
+        /// numbered after the app's other windows.
+        var isMinimized = false
     }
 
     struct Result: Sendable {
@@ -29,7 +32,7 @@ enum WindowCatalog {
         var unreachable: Set<String> = []
     }
 
-    static func all(apps: [NSRunningApplication]) -> Result {
+    static func all(apps: [NSRunningApplication], includeOutOfSight: Bool = false) -> Result {
         let cgByPID = candidateWindowIDs()
         let visible = Set(Spaces.displays().map(\.current))
         var result = Result()
@@ -52,12 +55,26 @@ enum WindowCatalog {
                 }
             }
             var index = 0
+            var outOfSight: [(AXWindow, CGWindowID, minimized: Bool)] = []
             for (w, id) in windows {
                 // Windows on other desktops often don't answer the subrole question; the window server already
                 // vouched for them (normal level, real size), so a readable frame is enough.
-                guard !w.isMinimized, let frame = w.frame, w.isStandard || w.subrole == nil else { continue }
+                if w.isMinimized { outOfSight.append((w, id, true)); continue }
+                // A hidden app's windows all say they're dialogs.
+                if app.isHidden, w.subrole == (kAXDialogSubrole as String) { outOfSight.append((w, id, false)); continue }
+                guard let frame = w.frame, w.isStandard || w.subrole == nil else { continue }
                 result.entries.append(Entry(window: w, id: id, bundleID: bundleID, appName: app.localizedName ?? bundleID,
                                     index: index, title: w.title, frame: frame, spaces: Spaces.spaces(forWindow: id)))
+                index += 1
+            }
+            guard includeOutOfSight else { continue }
+            for (w, id, minimized) in outOfSight {
+                // Windows in the Dock can say they're dialogs too.
+                guard let frame = w.frame,
+                      w.isStandard || w.subrole == nil || w.subrole == (kAXDialogSubrole as String) else { continue }
+                result.entries.append(Entry(window: w, id: id, bundleID: bundleID, appName: app.localizedName ?? bundleID,
+                                            index: index, title: w.title, frame: frame, spaces: Spaces.spaces(forWindow: id),
+                                            isMinimized: minimized))
                 index += 1
             }
         }

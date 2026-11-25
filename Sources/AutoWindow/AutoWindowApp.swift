@@ -5,6 +5,8 @@ import SwiftUI
 struct AutoWindowApp: App {
     @StateObject private var model = AppModel()
 
+    init() { MenuTips.install() }
+
     var body: some Scene {
         MenuBarExtra("AutoWindow", systemImage: "macwindow.on.rectangle") {
             MenuContent(model: model)

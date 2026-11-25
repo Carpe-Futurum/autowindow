@@ -49,7 +49,7 @@ You can use either without the other.
   </picture>
 
 - **Snapshots with desktops (Spaces).** Press ⌘S in the menu to save a named snapshot of the open windows on
-  every display *and* every desktop (minimized and full-screen windows are left out). Restoring moves each window back to its display, desktop, position and size,
+  every display *and* every desktop (minimized and full-screen windows are left out when saving). Restoring brings saved windows back out of the Dock if you minimized them since, shows apps you hid since, and moves each window back to its display, desktop, position and size,
   and shows the desktops that were showing when you saved. A snapshot is also taken shortly after AutoWindow
   starts.
 
@@ -188,7 +188,7 @@ Limitations:
   it can't get hold (a sheet is open, another window floats on top, the app draws its own title bar), that
   window keeps its desktop and the result says so.
 - Only open windows are placed. AutoWindow doesn't launch apps or reopen windows; a restore reports how many
-  saved windows it couldn't find (closed, minimized, or their app didn't answer).
+  saved windows it couldn't find (closed, or their app didn't answer).
 - Finding windows on desktops that aren't showing is best effort: an app that is busy at that moment can be
   missed for that capture.
 - "Displays have separate Spaces" turned off, and Stage Manager, are untested.

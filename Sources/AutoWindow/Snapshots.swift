@@ -25,6 +25,7 @@ enum Snapshots {
     struct Report {
         var placed = 0
         var movedDesktop = 0
+        var revealed = 0
         var notFound = 0
         var fullScreen = 0
         var problems: [String] = []
@@ -32,10 +33,26 @@ enum Snapshots {
         var summary: String {
             var parts = ["placed \(placed) windows"]
             if movedDesktop > 0 { parts.append("\(movedDesktop) moved to another desktop") }
-            if notFound > 0 { parts.append("\(notFound) not found (closed, minimized or unreachable)") }
+            if revealed > 0 { parts.append("\(revealed) brought back from minimized or hidden") }
+            if notFound > 0 { parts.append("\(notFound) not found (closed or unreachable)") }
             if fullScreen > 0 { parts.append("\(fullScreen) full-screen left alone") }
             return parts.joined(separator: ", ") + (problems.isEmpty ? "" : ". " + problems.joined(separator: " "))
         }
+    }
+
+    /// Unhides apps and takes windows out of the Dock, then waits until they're really there (2 seconds at most).
+    private static func reveal(apps: [NSRunningApplication], windows: [(window: AXWindow, id: CGWindowID)]) async {
+        guard !apps.isEmpty || !windows.isEmpty else { return }
+        for app in apps { app.unhide() }
+        for w in windows { w.window.unminimize() }
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
+            if apps.allSatisfy({ !$0.isHidden }),
+               windows.allSatisfy({ !$0.window.isMinimized && !Spaces.spaces(forWindow: $0.id).isEmpty }) { break }
+        }
+        try? await Task.sleep(for: .milliseconds(400)) // let the Dock animation finish
+        EventLog.write("revealed \(apps.count) hidden apps, \(windows.count) minimized windows (\(windows.filter { $0.window.isMinimized }.count) still minimized)")
     }
 
     /// Puts every open window back on its saved display, desktop, position and size, then shows the
@@ -46,7 +63,7 @@ enum Snapshots {
         var report = Report()
         SpaceMover.cancelled = false
         let displays = Dictionary(Displays.current().map { ($0.uuid, $0) }, uniquingKeysWith: { a, _ in a })
-        let catalog = await WindowManager.catalog().entries
+        let catalog = await WindowManager.catalog(includeOutOfSight: true).entries
         let desktops = Set(Spaces.displays().flatMap(\.desktops))
         let live = catalog.map { LiveWindowInfo(bundleID: $0.bundleID, title: $0.title, index: $0.index, windowID: $0.id) }
         let pairs = Matcher.match(records: layout.recordsForMatching(session: BootSession.current), live: live)
@@ -54,17 +71,27 @@ enum Snapshots {
         let pointer = CGEvent(source: nil)?.location
         let startCurrent = Dictionary(Spaces.displays().map { ($0.uuid, $0.current) }, uniquingKeysWith: { a, _ in a })
 
-        struct Job { let window: AXWindow; let id: CGWindowID; let target: CGRect; let display: DisplaySnapshot; let desktop: Int? }
+        struct Job { let window: AXWindow; let id: CGWindowID; let target: CGRect; let display: DisplaySnapshot; let desktop: Int?; let staysHidden: Bool }
         var jobs: [Job] = []
+        var hiddenApps: [pid_t: NSRunningApplication] = [:]
+        var minimized: [(window: AXWindow, id: CGWindowID)] = []
         for (liveIndex, record) in pairs {
             guard let display = displays[record.displayUUID] else { continue }
             let entry = catalog[liveIndex]
             // Full-screen windows are left alone: no resize, and no drag (their title bar isn't where a click would land).
-            if WindowManager.isFullScreen(entry, desktops: desktops) { report.fullScreen += 1; continue }
+            if !entry.isMinimized, WindowManager.isFullScreen(entry, desktops: desktops) { report.fullScreen += 1; continue }
+            let app = entry.window.app
+            let staysHidden = app.isHidden && record.hidden == true
+            // Was hidden and still is, and in the Dock on top of that: leave it there.
+            if staysHidden, entry.isMinimized { continue }
             jobs.append(Job(window: entry.window, id: entry.id,
                             target: Geometry.absolute(record.relativeFrame, on: display),
-                            display: display, desktop: record.spaceIndex))
+                            display: display, desktop: record.spaceIndex, staysHidden: staysHidden))
+            if entry.isMinimized { minimized.append((entry.window, entry.id)) }
+            if app.isHidden, !staysHidden { hiddenApps[app.processIdentifier] = app }
+            if entry.isMinimized || (app.isHidden && !staysHidden) { report.revealed += 1 }
         }
+        await reveal(apps: Array(hiddenApps.values), windows: minimized)
 
         // Pass 1: position and size. Windows already on the right desktop are done after this.
         for job in jobs { job.window.setFrame(job.target) }
@@ -73,7 +100,8 @@ enum Snapshots {
         // Pass 2: windows on the wrong desktop (or display) get dragged across, grouped by where they are now.
         var missingShortcuts = Set<Int>()
         var failedDrags = 0
-        let order = jobs.map { ($0, Spaces.spaces(forWindow: $0.id).first ?? 0) }.sorted { $0.1 < $1.1 }.map(\.0)
+        // Dragging would bring a hidden app back, so windows that stay hidden aren't moved between desktops.
+        let order = jobs.filter { !$0.staysHidden }.map { ($0, Spaces.spaces(forWindow: $0.id).first ?? 0) }.sorted { $0.1 < $1.1 }.map(\.0)
         for job in order {
             if SpaceMover.escapeHeld() { SpaceMover.cancelled = true }
             if SpaceMover.cancelled { break }

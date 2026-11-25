@@ -31,9 +31,11 @@ public struct WindowRecord: Codable, Hashable, Sendable {
     public var windowID: UInt32?
     /// Mission Control desktop on its display, 1-based. Nil when not captured (autosave doesn't track desktops).
     public var spaceIndex: Int?
+    /// True when the app was hidden (Cmd-H) at capture: a restore then leaves it hidden.
+    public var hidden: Bool?
 
     public init(bundleID: String, appName: String, title: String, index: Int, displayUUID: String, relativeFrame: CGRect,
-                windowID: UInt32? = nil, spaceIndex: Int? = nil) {
+                windowID: UInt32? = nil, spaceIndex: Int? = nil, hidden: Bool? = nil) {
         self.bundleID = bundleID
         self.appName = appName
         self.title = title
@@ -42,6 +44,7 @@ public struct WindowRecord: Codable, Hashable, Sendable {
         self.relativeFrame = relativeFrame
         self.windowID = windowID
         self.spaceIndex = spaceIndex
+        self.hidden = hidden
     }
 }
 
