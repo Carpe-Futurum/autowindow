@@ -1,6 +1,12 @@
 # AutoWindow
 
-**A macOS menu bar app that remembers where your windows go, on every monitor and every desktop, and puts them back. It also snaps any window to a half, quarter or third of the screen, so you don't need a second app for that.**
+**Snap windows like Magnet. Get them all back after every unplug.**
+
+A free, open-source Mac app that replaces Magnet: the same ⌃⌥ shortcuts snap any window to a half, quarter or third.
+And it does what Magnet doesn't: it remembers where every window goes, on every monitor and every desktop, and puts
+them all back when you dock, undock or wake your Mac.
+
+[**Download**](https://github.com/Carpe-Futurum/autowindow/releases/latest) · [Website](https://zein.nl/autowindow/) · [Help](https://zein.nl/autowindow/help/)
 
 <p align="center">
 <picture>
@@ -11,15 +17,31 @@
 
 <p align="center"><sub>Arranged → unplugged, macOS piles the windows on the laptop → plugged back in, AutoWindow puts each one back.</sub></p>
 
-Plug in your monitors and your windows return to where they were. Save a named snapshot of your whole setup
-(which window is on which monitor, on which Mission Control desktop, at which position and size) and bring it
-back with one click. Snap the window you're in to a half, quarter or third of the screen, or to the next monitor,
-with ⌃⌥ shortcuts or the list on its green button.
-
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-lightgrey)
 ![Swift 6 toolchain](https://img.shields.io/badge/Swift-6%20toolchain-orange)
 [![Test](https://github.com/Carpe-Futurum/autowindow/actions/workflows/test.yml/badge.svg)](https://github.com/Carpe-Futurum/autowindow/actions/workflows/test.yml)
+
+## One app instead of two
+
+Magnet moves one window when you ask. AutoWindow does that with the same keys, and also keeps every window's place
+for you.
+
+| | AutoWindow | Magnet |
+| --- | --- | --- |
+| Snap to halves, quarters, thirds and two thirds | Yes | Yes |
+| Magnet's ⌃⌥ shortcuts | Yes, the same keys | Yes |
+| Send a window to the next monitor | Yes | Yes |
+| Drag a window to a screen edge to snap it | No; macOS 15 and later do this themselves | Yes |
+| Put every window back when monitors come back | Yes, by itself | No |
+| Named snapshots of all monitors and desktops | Yes | No |
+| Price | Free, MIT licensed | Paid |
+
+**Switching:** quit Magnet and take it out of your login items, then open AutoWindow. `⌃⌥←` is still the left
+half. If Magnet, Rectangle or another window app is still running, AutoWindow's welcome window says so and offers to
+quit it, because two apps on the same keys means you can't tell which one acts.
+
+<sub>Magnet is a trademark of its owner. AutoWindow is not affiliated with it. Compared in November 2026.</sub>
 
 ## What it does
 
@@ -39,7 +61,7 @@ its screen. It does what Magnet or Rectangle do, with the same shortcuts as Magn
 management. Snapping doesn't change the automatic layout or any snapshot; the automatic layout simply picks up the
 new position on its next update, like any move you make by hand.
 
-You can use either without the other.
+You can use any of the three without the others.
 
 ## Features
 
