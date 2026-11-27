@@ -24,6 +24,16 @@ final class AppModel: ObservableObject {
     @Published var allowLinks: Bool { didSet { defaults.set(allowLinks, forKey: Keys.allowLinks) } }
     /// Snapshot restores first open the snapshot's apps that aren't running. Off by default.
     @Published var launchMissingApps: Bool { didSet { defaults.set(launchMissingApps, forKey: Keys.launchMissingApps) } }
+    /// Global ⌃⌥ shortcuts that snap the front window (halves, quarters, thirds, displays).
+    @Published var snapShortcuts: Bool {
+        didSet { defaults.set(snapShortcuts, forKey: Keys.snapShortcuts); Snapper.setShortcutsEnabled(snapShortcuts) }
+    }
+    /// Rest the pointer on a window's green button to get a list of snap positions beside it.
+    @Published var greenButtonPanel: Bool {
+        didSet { defaults.set(greenButtonPanel, forKey: Keys.greenButtonPanel); GreenButtonPanel.setEnabled(greenButtonPanel) }
+    }
+    /// Magnet uses the same shortcuts; while it runs, which app gets a key press is up to macOS.
+    @Published private(set) var magnetRunning = false
     /// Apps AutoWindow never records or moves (bundle IDs).
     @Published private(set) var ignoredApps: Set<String> {
         didSet {
@@ -64,6 +74,8 @@ final class AppModel: ObservableObject {
         static let launchMissingApps = "launchMissingApps"
         static let seenGuide = "seenGuide"
         static let ignoredApps = "ignoredBundleIDs"
+        static let snapShortcuts = "snapShortcuts"
+        static let greenButtonPanel = "greenButtonPanel"
     }
 
     struct AppChoice: Identifiable, Hashable {
@@ -80,12 +92,14 @@ final class AppModel: ObservableObject {
     static let undoSnapshotID = "undo"
 
     init() {
-        defaults.register(defaults: [Keys.autoRestore: true, Keys.autoSave: true, Keys.restoreOnAppLaunch: true])
+        defaults.register(defaults: [Keys.autoRestore: true, Keys.autoSave: true, Keys.restoreOnAppLaunch: true, Keys.snapShortcuts: true, Keys.greenButtonPanel: true])
         autoRestore = defaults.bool(forKey: Keys.autoRestore)
         autoSave = defaults.bool(forKey: Keys.autoSave)
         restoreOnAppLaunch = defaults.bool(forKey: Keys.restoreOnAppLaunch)
         allowLinks = defaults.bool(forKey: Keys.allowLinks)
         launchMissingApps = defaults.bool(forKey: Keys.launchMissingApps)
+        snapShortcuts = defaults.bool(forKey: Keys.snapShortcuts)
+        greenButtonPanel = defaults.bool(forKey: Keys.greenButtonPanel)
         ignoredApps = Set(defaults.stringArray(forKey: Keys.ignoredApps) ?? [])
         WindowManager.userIgnored = ignoredApps
 
@@ -93,6 +107,8 @@ final class AppModel: ObservableObject {
         refreshAppChoices()
         reloadLayouts()
         observe()
+        Snapper.setShortcutsEnabled(snapShortcuts)
+        GreenButtonPanel.setEnabled(greenButtonPanel)
         if let problem = store.loadProblem ?? snapshotStore.loadProblem {
             lastEvent = problem
             EventLog.write(problem)
@@ -347,6 +363,7 @@ final class AppModel: ObservableObject {
     }
 
     private func refreshAppChoices() {
+        refreshMagnet()
         var names: [String: String] = [:]
         for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular && !app.isTerminated {
             guard let id = app.bundleIdentifier, !WindowManager.ignoredBundleIDs.contains(id) else { continue }
@@ -358,6 +375,16 @@ final class AppModel: ObservableObject {
         }
         appChoices = names.map { AppChoice(id: $0.key, name: $0.value) }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    func snap(_ action: SnapAction) { Snapper.perform(action) }
+
+    func quitMagnet() {
+        NSRunningApplication.runningApplications(withBundleIdentifier: Snapper.magnetBundleID).forEach { $0.terminate() }
+    }
+
+    func refreshMagnet() {
+        magnetRunning = !NSRunningApplication.runningApplications(withBundleIdentifier: Snapper.magnetBundleID).isEmpty
     }
 
     func showGuide() {
@@ -403,6 +430,10 @@ final class AppModel: ObservableObject {
                 let file = LayoutStore.directory.appendingPathComponent("debug-catalog.txt")
                 try? WindowCatalog.diagnostics(apps: apps).write(to: file, atomically: true, encoding: .utf8)
             }
+            return
+        }
+        if url.host == "snap" {
+            if let action = SnapAction(rawValue: String(url.path.dropFirst())) { snap(action) }
             return
         }
         guard url.host == "snapshot" else { return }

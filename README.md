@@ -55,6 +55,17 @@ You can use either without the other.
   starts. Click a snapshot in the menu to restore it; with **Open Missing Apps When Restoring** on, apps in the
   snapshot that aren't running are opened first.
 
+- **Snap the front window.** ⌃⌥ plus a key, from any app (the same shortcuts as Magnet), or **Snap Front Window**
+  in the menu: halves (⌃⌥ arrows), quarters (U I J K), thirds (D F G), two thirds (E R T), next or previous
+  display (⌃⌥⌘ ←/→), maximize (⌃⌥↩), center (⌃⌥C) and restore to where it was before you snapped (⌃⌥⌫).
+  Also as `autowindow://snap/left` and so on (action names: left, right, top, bottom, topLeft, topRight, bottomLeft,
+  bottomRight, leftThird, centerThird, rightThird, leftTwoThirds, centerTwoThirds, rightTwoThirds, nextDisplay,
+  previousDisplay, maximize, center, restore). Quit Magnet first: both apps answer the same keys.
+
+  Or rest the pointer on a window's green button: the same list replaces macOS's own short menu there, and a click snaps that window.
+  Turn it off under **Snap Front Window → Show This List on the Green Button**. Next and Previous Display go by
+  where the monitors sit on your desk, left to right.
+
 - **Undo.** After a restore you asked for (a snapshot, Put Windows Back Now, or Apply in the editor),
   **Undo Last Restore** in the menu moves the windows back to where they were.
 

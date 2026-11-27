@@ -20,6 +20,15 @@ struct AutoWindowApp: App {
     }
 }
 
+private let snapGroups: [[SnapAction]] = [
+    [.left, .right, .top, .bottom],
+    [.topLeft, .topRight, .bottomLeft, .bottomRight],
+    [.leftThird, .centerThird, .rightThird],
+    [.leftTwoThirds, .centerTwoThirds, .rightTwoThirds],
+    [.nextDisplay, .previousDisplay],
+    [.maximize, .center, .restore],
+]
+
 private func snapshotDetail(_ s: AutoWindowCore.Layout) -> String {
     let desktops = (s.spaceCounts ?? [:]).values.reduce(0, +)
     return "\(s.windows.count) windows · \(desktops) desktops · \(s.updatedAt.formatted(date: .abbreviated, time: .shortened))"
@@ -46,6 +55,23 @@ struct MenuContent: View {
         }
         if model.desktopsReorder {
             Button("⚠︎ macOS Rearranges Your Desktops — Turn Off…") { model.openDesktopSettings() }
+        }
+
+        Menu("Snap Front Window") {
+            if model.magnetRunning && model.snapShortcuts {
+                Button("Magnet Uses the Same Shortcuts — Quit Magnet") { model.quitMagnet() }
+                Divider()
+            }
+            ForEach(snapGroups, id: \.self) { group in
+                ForEach(group, id: \.self) { action in
+                    let s = Snapper.shortcut(for: action)
+                    Button(action.title) { model.snap(action) }
+                        .keyboardShortcut(s.key, modifiers: s.command ? [.control, .option, .command] : [.control, .option])
+                }
+                Divider()
+            }
+            Toggle("Use These Shortcuts Everywhere", isOn: $model.snapShortcuts)
+            Toggle("Show This List on the Green Button", isOn: $model.greenButtonPanel)
         }
 
         let here = model.snapshots.filter { $0.signature == model.currentSignature }
