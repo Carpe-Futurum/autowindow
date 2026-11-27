@@ -45,8 +45,6 @@ enum MenuTips {
             "Start AutoWindow when you log in.",
         "Show Data Folder":
             "Show the file with your saved layouts in Finder.",
-        "Magnet Uses the Same Shortcuts — Quit Magnet":
-            "Magnet and AutoWindow both answer ⌃⌥ shortcuts, so a key press can go to either. Quits Magnet.",
         "Use These Shortcuts Everywhere":
             "Snap the front window with these shortcuts from any app, without opening this menu.",
         "Show This List on the Green Button":

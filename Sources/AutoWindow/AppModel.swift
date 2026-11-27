@@ -32,8 +32,9 @@ final class AppModel: ObservableObject {
     @Published var greenButtonPanel: Bool {
         didSet { defaults.set(greenButtonPanel, forKey: Keys.greenButtonPanel); GreenButtonPanel.setEnabled(greenButtonPanel) }
     }
-    /// Magnet uses the same shortcuts; while it runs, which app gets a key press is up to macOS.
-    @Published private(set) var magnetRunning = false
+    /// Other window apps running now (Magnet, Rectangle…), by name. They answer the same keys and the green
+    /// button; while one runs, which app acts is up to macOS.
+    @Published private(set) var otherWindowApps: [String] = []
     /// Apps AutoWindow never records or moves (bundle IDs).
     @Published private(set) var ignoredApps: Set<String> {
         didSet {
@@ -53,6 +54,8 @@ final class AppModel: ObservableObject {
     private let snapshotStore = LayoutStore(fileURL: LayoutStore.snapshotsURL)
     private let defaults = UserDefaults.standard
     private var observers: [NSObjectProtocol] = []
+    /// Watches every app starting and quitting, menu bar apps included (the launch and quit notifications skip those).
+    private var runningAppsObservation: NSKeyValueObservation?
     private var urlHandler: URLEventHandler?
     private var autosaveTimer: Timer?
     private var trustTimer: Timer?
@@ -363,7 +366,7 @@ final class AppModel: ObservableObject {
     }
 
     private func refreshAppChoices() {
-        refreshMagnet()
+        refreshOtherWindowApps()
         var names: [String: String] = [:]
         for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular && !app.isTerminated {
             guard let id = app.bundleIdentifier, !WindowManager.ignoredBundleIDs.contains(id) else { continue }
@@ -379,12 +382,20 @@ final class AppModel: ObservableObject {
 
     func snap(_ action: SnapAction) { Snapper.perform(action) }
 
-    func quitMagnet() {
-        NSRunningApplication.runningApplications(withBundleIdentifier: Snapper.magnetBundleID).forEach { $0.terminate() }
+    /// Quits the other window apps. They may ask first; the list updates when they're gone.
+    func quitOtherWindowApps() {
+        Snapper.runningOtherWindowApps().forEach { $0.terminate() }
     }
 
-    func refreshMagnet() {
-        magnetRunning = !NSRunningApplication.runningApplications(withBundleIdentifier: Snapper.magnetBundleID).isEmpty
+    /// Called when apps start or quit. When one quits, shortcuts it held become free, so they're taken again.
+    func refreshOtherWindowApps() {
+        let running = Snapper.runningOtherWindowApps()
+        otherWindowApps = Array(Set(running.compactMap { $0.bundleIdentifier.flatMap { Snapper.otherWindowApps[$0] } })).sorted()
+        if snapShortcuts, !Snapper.takenShortcuts.isEmpty { Snapper.setShortcutsEnabled(true) }
+    }
+
+    func openLoginItems() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension")!)
     }
 
     func showGuide() {
@@ -499,6 +510,10 @@ final class AppModel: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in self?.displaysChanged() }
         })
+
+        runningAppsObservation = NSWorkspace.shared.observe(\.runningApplications) { [weak self] _, _ in
+            Task { @MainActor in self?.refreshOtherWindowApps() }
+        }
 
         let ws = NSWorkspace.shared.notificationCenter
         observers.append(ws.addObserver(

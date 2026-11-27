@@ -59,7 +59,30 @@ enum Snapper {
 
     // MARK: - Shortcuts
 
-    static let magnetBundleID = "com.crowdcafe.windowmagnet"
+    /// Apps that snap windows too. With one of them running, the same keys and the green button can go to either app.
+    static let otherWindowApps: [String: String] = [
+        "com.crowdcafe.windowmagnet": "Magnet",
+        "com.knollsoft.Rectangle": "Rectangle",
+        "com.knollsoft.Hookshot": "Rectangle Pro",
+        "com.divisiblebyzero.Spectacle": "Spectacle",
+        "com.manytricks.Moom": "Moom",
+        "com.hegenberg.BetterSnapTool": "BetterSnapTool",
+        "com.mizage.Divvy": "Divvy",
+        "com.mizage.direct.Divvy": "Divvy",
+        "com.amethyst.Amethyst": "Amethyst",
+        "com.MrKai77.Loop": "Loop",
+        "co.highlyopinionated.swish": "Swish",
+    ]
+
+    /// Window apps from `otherWindowApps` running now.
+    static func runningOtherWindowApps() -> [NSRunningApplication] {
+        NSWorkspace.shared.runningApplications.filter {
+            !$0.isTerminated && $0.bundleIdentifier.map { otherWindowApps[$0] != nil } == true
+        }
+    }
+
+    /// Shortcuts macOS refused because another app already has them: the generic check, for apps not in the list.
+    private(set) static var takenShortcuts: [SnapAction] = []
 
     /// The key and modifiers for each action, as Magnet ships them.
     static func shortcut(for action: SnapAction) -> (keyCode: Int, key: KeyEquivalent, command: Bool) {
@@ -109,6 +132,7 @@ enum Snapper {
     static func setShortcutsEnabled(_ enabled: Bool) {
         hotKeys.forEach { UnregisterEventHotKey($0) }
         hotKeys = []
+        takenShortcuts = []
         guard enabled else { return }
         if handler == nil {
             var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
@@ -131,6 +155,8 @@ enum Snapper {
             let id = EventHotKeyID(signature: OSType(0x4157_534E), id: UInt32(i)) // "AWSN"
             if RegisterEventHotKey(UInt32(s.keyCode), mods, id, GetApplicationEventTarget(), 0, &ref) == noErr, let ref {
                 hotKeys.append(ref)
+            } else {
+                takenShortcuts.append(action)
             }
         }
     }
