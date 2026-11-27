@@ -46,6 +46,8 @@ private struct GuideView: View {
                      "Nothing to do. AutoWindow remembers where your windows are for each set of monitors, and puts them back when you plug in, unplug or wake your Mac.")
                 card("camera.viewfinder", "Snapshots",
                      "Save your whole setup under a name, desktops included. Click the name in the menu to bring it back.")
+                card("rectangle.split.2x1", "Snap",
+                     "Rest the pointer on a window's green button and pick a half, quarter or third. Or press ⌃⌥ with an arrow, U I J K, D F G or E R T.")
             }
 
             VStack(alignment: .leading, spacing: 10) {
@@ -62,7 +64,7 @@ private struct GuideView: View {
             }
         }
         .padding(22)
-        .frame(width: 600)
+        .frame(width: 720)
     }
 
     private func card(_ symbol: String, _ title: String, _ text: String) -> some View {

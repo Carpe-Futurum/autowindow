@@ -1,6 +1,6 @@
 # AutoWindow
 
-**A macOS menu bar app that remembers where your windows go, on every monitor and every desktop, and puts them back.**
+**A macOS menu bar app that remembers where your windows go, on every monitor and every desktop, and puts them back. It also snaps any window to a half, quarter or third of the screen, so you don't need a second app for that.**
 
 <p align="center">
 <picture>
@@ -13,16 +13,17 @@
 
 Plug in your monitors and your windows return to where they were. Save a named snapshot of your whole setup
 (which window is on which monitor, on which Mission Control desktop, at which position and size) and bring it
-back with one click.
+back with one click. Snap the window you're in to a half, quarter or third of the screen, or to the next monitor,
+with ⌃⌥ shortcuts or the list on its green button.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-lightgrey)
 ![Swift 6 toolchain](https://img.shields.io/badge/Swift-6%20toolchain-orange)
 [![Test](https://github.com/Carpe-Futurum/autowindow/actions/workflows/test.yml/badge.svg)](https://github.com/Carpe-Futurum/autowindow/actions/workflows/test.yml)
 
-## Two things it does
+## What it does
 
-AutoWindow does two separate jobs. They share the idea of "put windows back", but they are not the same:
+AutoWindow does two separate jobs of putting windows back. They share the idea, but they are not the same:
 
 | | **Automatic** | **Snapshots** |
 | --- | --- | --- |
@@ -32,6 +33,11 @@ AutoWindow does two separate jobs. They share the idea of "put windows back", bu
 | When windows go back | By itself: when monitors change, on wake, when an app opens | When you click the snapshot in the menu |
 | Desktops (Spaces) | Left alone: a window stays on the desktop it's on | Restored: each window goes back to its desktop |
 | Good for | Docking and undocking without re-arranging | Switching between setups, such as "Deep work" and "Calls" |
+
+And a third job that stands apart: **Snap**, which moves the one window you're working in, right now, to a part of
+its screen. It does what Magnet or Rectangle do, with the same shortcuts as Magnet, so one app covers window
+management. Snapping doesn't change the automatic layout or any snapshot; the automatic layout simply picks up the
+new position on its next update, like any move you make by hand.
 
 You can use either without the other.
 
@@ -54,6 +60,17 @@ You can use either without the other.
   and shows the desktops that were showing when you saved. A snapshot is also taken shortly after AutoWindow
   starts. Click a snapshot in the menu to restore it; with **Open Missing Apps When Restoring** on, apps in the
   snapshot that aren't running are opened first.
+
+- **Snap the front window.** ⌃⌥ plus a key, from any app (the same shortcuts as Magnet), or **Snap Front Window**
+  in the menu: halves (⌃⌥ arrows), quarters (U I J K), thirds (D F G), two thirds (E R T), next or previous
+  display (⌃⌥⌘ ←/→), maximize (⌃⌥↩), center (⌃⌥C) and restore to where it was before you snapped (⌃⌥⌫).
+  Also as `autowindow://snap/left` and so on (action names: left, right, top, bottom, topLeft, topRight, bottomLeft,
+  bottomRight, leftThird, centerThird, rightThird, leftTwoThirds, centerTwoThirds, rightTwoThirds, nextDisplay,
+  previousDisplay, maximize, center, restore). Quit Magnet first: both apps answer the same keys.
+
+  Or rest the pointer on a window's green button: the same list replaces macOS's own short menu there, and a click snaps that window.
+  Turn it off under **Snap Front Window → Show This List on the Green Button**. Next and Previous Display go by
+  where the monitors sit on your desk, left to right.
 
 - **Undo.** After a restore you asked for (a snapshot, Put Windows Back Now, or Apply in the editor),
   **Undo Last Restore** in the menu moves the windows back to where they were.
@@ -90,6 +107,7 @@ You can use either without the other.
   ```bash
   open "autowindow://snapshot/save?name=Desk"
   open "autowindow://snapshot/restore?name=Desk"
+  open "autowindow://snap/leftTwoThirds"
   ```
 
   Links are **off by default**, because any app or web page can open one; turn on **Settings → Allow Control by
@@ -146,6 +164,11 @@ Keyboard Shortcuts… → Mission Control**), whatever keys you assigned:
 With both kinds off, windows still get the right display, position and size, and the restore message says
 which shortcuts are missing.
 
+### 4. Coming from Magnet or Rectangle
+
+Quit it and remove it from Login Items (System Settings → General → Login Items). Both apps answer the same
+⌃⌥ keys and both show a list on the green button, so with two running you can't tell which one acts.
+
 ### Signing and rebuilds
 
 `scripts/build-app.sh` signs with the first "Developer ID Application" identity in your keychain, if you have
@@ -167,6 +190,26 @@ The menu holds what you do day to day; switches you set once are under **Setting
 | Manage Snapshots → *name* → Rename… / Delete… | Rename it, or delete it after a confirmation |
 
 Snapshots saved with a different set of monitors are listed under Manage Snapshots, marked "(other monitors)".
+
+**Snap Front Window**
+
+Acts on the window you're working in. The same list appears when you rest the pointer on a window's green button,
+in place of macOS's own menu there; a click on a row snaps that window.
+
+| Menu item | Shortcut | What it does |
+| --- | --- | --- |
+| Left / Right / Top / Bottom | ⌃⌥← ⌃⌥→ ⌃⌥↑ ⌃⌥↓ | Half of the screen |
+| Top Left / Top Right / Bottom Left / Bottom Right | ⌃⌥U ⌃⌥I ⌃⌥J ⌃⌥K | A quarter |
+| Left / Center / Right Third | ⌃⌥D ⌃⌥F ⌃⌥G | A third |
+| Left / Center / Right Two Thirds | ⌃⌥E ⌃⌥R ⌃⌥T | Two thirds |
+| Next / Previous Display | ⌃⌥⌘→ ⌃⌥⌘← | The same part of the next monitor, going left to right as they sit on your desk |
+| Maximize / Center | ⌃⌥↩ ⌃⌥C | Fill the screen (not full screen) / center at its current size |
+| Restore | ⌃⌥⌫ | Back to where it was before you first snapped it |
+| Use These Shortcuts Everywhere | | The shortcuts work in every app, without opening the menu (on by default) |
+| Show This List on the Green Button | | The green-button list (on by default) |
+
+The shortcuts need no permission beyond Accessibility. If Magnet is running it answers the same keys, and the
+menu offers to quit it.
 
 **Automatic — for these monitors**
 

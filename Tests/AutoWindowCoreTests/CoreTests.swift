@@ -229,3 +229,24 @@ private func editLayout() -> Layout {
     let l = editLayout().removing(bundleIDs: ["a"])
     #expect(l.windows.map(\.bundleID) == ["b"])
 }
+
+// MARK: - Window snapping
+
+private let area = CGRect(x: 0, y: 25, width: 1500, height: 900)
+
+@Test func snapHalvesAndQuarters() {
+    let w = CGRect(x: 10, y: 40, width: 300, height: 200)
+    #expect(WindowSnap.frame(.left, window: w, in: area) == CGRect(x: 0, y: 25, width: 750, height: 900))
+    #expect(WindowSnap.frame(.bottomRight, window: w, in: area) == CGRect(x: 750, y: 475, width: 750, height: 450))
+    #expect(WindowSnap.frame(.rightThird, window: w, in: area) == CGRect(x: 1000, y: 25, width: 500, height: 900))
+    #expect(WindowSnap.frame(.centerTwoThirds, window: w, in: area) == CGRect(x: 250, y: 25, width: 1000, height: 900))
+    #expect(WindowSnap.frame(.center, window: w, in: area) == CGRect(x: 600, y: 375, width: 300, height: 200))
+    #expect(WindowSnap.frame(.restore, window: w, in: area) == nil)
+}
+
+@Test func snapMoveKeepsShareOfScreen() {
+    let other = CGRect(x: 1500, y: 0, width: 3000, height: 1800)
+    let half = CGRect(x: 0, y: 25, width: 750, height: 900)
+    #expect(WindowSnap.move(half, from: area, to: other) == CGRect(x: 1500, y: 0, width: 1500, height: 1800))
+    #expect(WindowSnap.areaIndex(for: CGRect(x: 1600, y: 10, width: 100, height: 100), in: [area, other]) == 1)
+}
