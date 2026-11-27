@@ -297,6 +297,10 @@ Limitations:
 
 ## Privacy
 
+AutoWindow never sees what's in your windows: it takes no screenshots and doesn't ask for Screen Recording
+permission. Through the Accessibility permission it reads only each window's position, size, title and state
+(minimized, full screen).
+
 AutoWindow has no network code. It stores window positions, app names, bundle IDs, display names and window
 titles locally in `~/Library/Application Support/AutoWindow/`. Window titles can be revealing (document names,
 page titles, mail subjects), and the saved place of an app that isn't running is kept until you delete the
