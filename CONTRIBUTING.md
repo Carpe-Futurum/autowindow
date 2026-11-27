@@ -39,7 +39,7 @@ every rebuild: remove AutoWindow under System Settings â†’ Privacy & Security â†
 ## Testing desktop moves
 
 `autowindow://` links are the easiest way to drive a restore while watching `events.log`. Turn on "Allow
-Control by autowindow:// Links" first. To exercise the Ctrl+arrow path instead of the numbered shortcuts:
+Control by autowindow:// Links" under Settings first. To exercise the Ctrl+arrow path instead of the numbered shortcuts:
 
 ```bash
 defaults write nl.carpefuturum.autowindow arrowShortcutsOnly -bool true   # relaunch; delete the key after

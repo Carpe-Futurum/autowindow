@@ -22,6 +22,19 @@ final class AppModel: ObservableObject {
     @Published var restoreOnAppLaunch: Bool { didSet { defaults.set(restoreOnAppLaunch, forKey: Keys.restoreOnAppLaunch) } }
     /// autowindow:// links can save and restore snapshots. Off by default: any app or web page can open a link.
     @Published var allowLinks: Bool { didSet { defaults.set(allowLinks, forKey: Keys.allowLinks) } }
+    /// Snapshot restores first open the snapshot's apps that aren't running. Off by default.
+    @Published var launchMissingApps: Bool { didSet { defaults.set(launchMissingApps, forKey: Keys.launchMissingApps) } }
+    /// Apps AutoWindow never records or moves (bundle IDs).
+    @Published private(set) var ignoredApps: Set<String> {
+        didSet {
+            defaults.set(ignoredApps.sorted(), forKey: Keys.ignoredApps)
+            WindowManager.userIgnored = ignoredApps
+        }
+    }
+    /// Running apps and ignored ones, by name: the choices in the Ignored Apps menu.
+    @Published private(set) var appChoices: [AppChoice] = []
+    /// Where the windows were before the last restore the user asked for; nil when there's nothing to undo.
+    @Published private(set) var undoState: Layout?
     @Published var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled {
         didSet { setLaunchAtLogin(launchAtLogin) }
     }
@@ -48,6 +61,14 @@ final class AppModel: ObservableObject {
         static let autoSave = "autoSave"
         static let restoreOnAppLaunch = "restoreOnAppLaunch"
         static let allowLinks = "allowLinks"
+        static let launchMissingApps = "launchMissingApps"
+        static let seenGuide = "seenGuide"
+        static let ignoredApps = "ignoredBundleIDs"
+    }
+
+    struct AppChoice: Identifiable, Hashable {
+        let id: String
+        let name: String
     }
 
     static let autosaveInterval: TimeInterval = 30
@@ -55,6 +76,8 @@ final class AppModel: ObservableObject {
     /// Wait after launch before the startup snapshot, so apps opened at login have their windows up.
     static let startupSnapshotDelay: TimeInterval = 20
     static let startupSnapshotID = "startup"
+    /// Never stored: the id of the in-memory state kept for Undo.
+    static let undoSnapshotID = "undo"
 
     init() {
         defaults.register(defaults: [Keys.autoRestore: true, Keys.autoSave: true, Keys.restoreOnAppLaunch: true])
@@ -62,8 +85,12 @@ final class AppModel: ObservableObject {
         autoSave = defaults.bool(forKey: Keys.autoSave)
         restoreOnAppLaunch = defaults.bool(forKey: Keys.restoreOnAppLaunch)
         allowLinks = defaults.bool(forKey: Keys.allowLinks)
+        launchMissingApps = defaults.bool(forKey: Keys.launchMissingApps)
+        ignoredApps = Set(defaults.stringArray(forKey: Keys.ignoredApps) ?? [])
+        WindowManager.userIgnored = ignoredApps
 
         refreshDisplays()
+        refreshAppChoices()
         reloadLayouts()
         observe()
         if let problem = store.loadProblem ?? snapshotStore.loadProblem {
@@ -71,12 +98,11 @@ final class AppModel: ObservableObject {
             EventLog.write(problem)
         }
 
-        if !isTrusted {
-            AXWindow.requestTrust()
-            // Poll until the user grants Accessibility; there's no notification for it.
-            trustTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-                Task { @MainActor in self?.checkTrust() }
-            }
+        if !isTrusted { startTrustPolling() }
+        // First launch, or no access yet: explain what the app does and what it needs, rather than
+        // leaving a bare system prompt and an icon in the menu bar.
+        if !isTrusted || !defaults.bool(forKey: Keys.seenGuide) {
+            DispatchQueue.main.async { [weak self] in self?.showGuide() }
         }
         autosaveTimer = Timer.scheduledTimer(withTimeInterval: Self.autosaveInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.autosaveTick() }
@@ -141,8 +167,33 @@ final class AppModel: ObservableObject {
         }
         autosaveSuppressedUntil = Date().addingTimeInterval(8)
         Task {
+            let before = await WindowManager.capture().layout
             let moved = await WindowManager.restore(layout)
+            if moved > 0 { undoState = before }
             lastEvent = "Put \(moved) windows back at \(Self.time())"
+        }
+    }
+
+    /// Moves windows back to where they were before the last restore the user asked for (menu, editor or link).
+    /// Automatic restores (monitors changed, app opened) aren't undoable: what was there before is the pile-up.
+    func undoLastRestore() {
+        guard isTrusted else { return requestAccess() }
+        guard !isRestoring, let before = undoState else { return }
+        refreshDisplays()
+        guard before.signature == currentSignature else {
+            undoState = nil
+            lastEvent = "Can't undo: the monitors changed"
+            return
+        }
+        if before.isSnapshot {
+            runSnapshotRestore(before, undoing: true)
+        } else {
+            undoState = nil
+            autosaveSuppressedUntil = Date().addingTimeInterval(8)
+            Task {
+                let moved = await WindowManager.restore(before)
+                lastEvent = "Undone: moved \(moved) windows back"
+            }
         }
     }
 
@@ -162,7 +213,9 @@ final class AppModel: ObservableObject {
         if edited.signature == currentSignature, isTrusted, !isRestoring {
             autosaveSuppressedUntil = Date().addingTimeInterval(8)
             Task {
+                let before = await WindowManager.capture().layout
                 let moved = await WindowManager.restore(stored)
+                if moved > 0 { undoState = before }
                 lastEvent = "Applied edits to \"\(stored.name)\", moved \(moved) windows"
             }
         } else {
@@ -218,7 +271,10 @@ final class AppModel: ObservableObject {
 
     /// Puts windows back as the snapshot has them, including desktops. Runs for a few seconds
     /// (the screen flips through desktops), so it's async and ignores a second request meanwhile.
-    func restoreSnapshot(_ snapshot: Layout) {
+    func restoreSnapshot(_ snapshot: Layout) { runSnapshotRestore(snapshot, undoing: false) }
+
+    /// `undoing`: `snapshot` is the state kept before the last restore, being put back.
+    private func runSnapshotRestore(_ snapshot: Layout, undoing: Bool) {
         guard isTrusted else { return requestAccess() }
         guard !isRestoring else { return }
         refreshDisplays()
@@ -227,15 +283,95 @@ final class AppModel: ObservableObject {
             return
         }
         isRestoring = true
-        lastEvent = "Restoring \"\(snapshot.name)\"…"
+        lastEvent = undoing ? "Undoing the restore…" : "Restoring \"\(snapshot.name)\"…"
         autosaveSuppressedUntil = .distantFuture
+        let openMissing = launchMissingApps && !undoing
         Task { @MainActor in
-            let report = await Snapshots.restore(snapshot)
+            // Where everything is now, desktops included, so the restore can be undone.
+            let before = undoing ? nil : await Snapshots.capture(name: "Before restore", id: Self.undoSnapshotID)
+            let report = await Snapshots.restore(snapshot, openMissing: openMissing)
             isRestoring = false
             autosaveSuppressedUntil = Date().addingTimeInterval(5)
-            lastEvent = "Restored \"\(snapshot.name)\": \(report.summary)"
+            undoState = before
+            lastEvent = undoing ? "Undone: \(report.summary)" : "Restored \"\(snapshot.name)\": \(report.summary)"
             EventLog.write(lastEvent)
         }
+    }
+
+    /// Replaces a snapshot's windows with the ones open now, keeping its name. Asks first.
+    func updateSnapshot(_ snapshot: Layout) {
+        guard isTrusted else { return requestAccess() }
+        refreshDisplays()
+        guard let id = snapshot.id, let stored = snapshotStore.layout(for: id) else { return }
+        guard stored.signature == currentSignature else {
+            lastEvent = "\"\(stored.name)\" is for other displays (\(Layout.defaultName(for: stored.displays)))"
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Replace \"\(stored.name)\" with the windows as they are now?"
+        alert.informativeText = "The snapshot's saved windows, positions and desktops are replaced. This can't be undone."
+        alert.addButton(withTitle: "Replace")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Task {
+            let fresh = await Snapshots.capture(name: stored.name, id: id)
+            guard !fresh.windows.isEmpty else {
+                lastEvent = "\"\(stored.name)\" not updated: no windows found"
+                return
+            }
+            snapshotStore.save(fresh)
+            reloadLayouts()
+            lastEvent = "Updated snapshot \"\(stored.name)\": \(fresh.windows.count) windows"
+        }
+    }
+
+    // MARK: - Ignored apps
+
+    /// An ignored app is never recorded or moved. Ignoring one also drops it from the automatic layouts;
+    /// snapshots keep their record of it, and skip it while it's ignored.
+    func setIgnored(_ bundleID: String, _ ignored: Bool) {
+        let name = appChoices.first { $0.id == bundleID }?.name ?? bundleID
+        if ignored {
+            ignoredApps.insert(bundleID)
+            for layout in Array(store.layouts.values) where layout.windows.contains(where: { $0.bundleID == bundleID }) {
+                store.save(layout.removing(bundleIDs: [bundleID]))
+            }
+            reloadLayouts()
+            lastEvent = "Ignoring \(name): its windows are left alone"
+        } else {
+            ignoredApps.remove(bundleID)
+            lastEvent = "No longer ignoring \(name)"
+        }
+        refreshAppChoices()
+    }
+
+    private func refreshAppChoices() {
+        var names: [String: String] = [:]
+        for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular && !app.isTerminated {
+            guard let id = app.bundleIdentifier, !WindowManager.ignoredBundleIDs.contains(id) else { continue }
+            names[id] = app.localizedName ?? id
+        }
+        for id in ignoredApps where names[id] == nil {
+            names[id] = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id)
+                .map { ($0.lastPathComponent as NSString).deletingPathExtension } ?? id
+        }
+        appChoices = names.map { AppChoice(id: $0.key, name: $0.value) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    func showGuide() {
+        defaults.set(true, forKey: Keys.seenGuide)
+        GuideWindow.show(model: self)
+    }
+
+    func openKeyboardSettings() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension")!)
+    }
+
+    func showAbout() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(nil)
     }
 
     /// Snapshot taken shortly after AutoWindow starts, replacing the previous startup snapshot.
@@ -338,7 +474,15 @@ final class AppModel: ObservableObject {
             forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main
         ) { [weak self] note in
             let bundleID = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
-            Task { @MainActor in self?.appLaunched(bundleID) }
+            Task { @MainActor in
+                self?.refreshAppChoices()
+                self?.appLaunched(bundleID)
+            }
+        })
+        observers.append(ws.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.refreshAppChoices() }
         })
         observers.append(ws.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
@@ -394,7 +538,11 @@ final class AppModel: ObservableObject {
     }
 
     private func autosaveTick() {
+        checkTrust()
+        let before = currentSignature
         refreshDisplays()
+        // The monitors changed and the notification hasn't come yet: what's on screen now is the pile-up, not a layout.
+        if before != currentSignature { return displaysChanged() }
         if autosavePausedFor != currentSignature { autosavePausedFor = nil }
         guard autoSave, isTrusted, !isRestoring, !isAutosaving, autosavePausedFor == nil,
               Date() >= autosaveSuppressedUntil else { return }
@@ -414,12 +562,26 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Polls until the user grants Accessibility; there's no notification for it.
+    private func startTrustPolling() {
+        trustTimer?.invalidate()
+        trustTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkTrust() }
+        }
+    }
+
+    /// Also run with every autosave tick, so access taken away later shows up in the menu.
     private func checkTrust() {
-        isTrusted = AXWindow.isTrusted
-        if isTrusted {
+        let trusted = AXWindow.isTrusted
+        guard trusted != isTrusted else { return }
+        isTrusted = trusted
+        if trusted {
             trustTimer?.invalidate()
             trustTimer = nil
             lastEvent = "Accessibility access granted"
+        } else {
+            lastEvent = "Accessibility access was turned off"
+            startTrustPolling()
         }
     }
 
@@ -427,13 +589,16 @@ final class AppModel: ObservableObject {
 
     private func refreshDisplays() {
         let displays = Displays.current()
-        currentSignature = Layout.signature(for: displays)
+        let signature = Layout.signature(for: displays)
+        if signature != currentSignature { undoState = nil }
+        currentSignature = signature
         currentName = Layout.defaultName(for: displays)
         desktopsReorder = Spaces.reordersAutomatically && Spaces.displays().contains { $0.desktops.count > 1 }
     }
 
     private func reloadLayouts() {
         snapshots = snapshotStore.layouts.values.sorted { $0.updatedAt > $1.updatedAt }
+        MenuTips.snapshotNames = Set(snapshots.map(\.name))
         layouts = store.layouts.values.sorted { $0.updatedAt > $1.updatedAt }
     }
 

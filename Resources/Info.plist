@@ -8,6 +8,8 @@
 	<string>AutoWindow</string>
 	<key>CFBundleExecutable</key>
 	<string>AutoWindow</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>nl.carpefuturum.autowindow</string>
 	<key>CFBundleName</key>

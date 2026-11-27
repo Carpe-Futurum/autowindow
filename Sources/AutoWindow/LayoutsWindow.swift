@@ -28,7 +28,7 @@ struct LayoutsWindow: View {
                 LayoutDetail(model: model, layout: layout, dirty: $dirty)
                     .id(layout.storeKey)
             } else {
-                Text(model.layouts.isEmpty ? "No saved layouts yet" : "Select a layout")
+                Text(model.layouts.isEmpty && model.snapshots.isEmpty ? "No saved layouts yet" : "Select a layout")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -140,6 +140,11 @@ private struct LayoutDetail: View {
             }
         }
         .padding()
+        .onChange(of: layout.name) { _, fresh in
+            // Renamed from the menu: follow it, or closing this window would rename it back.
+            name = fresh
+            draft.name = fresh
+        }
         .onChange(of: layout) { _, fresh in
             // Autosave refreshes the stored layout; follow it unless the user is mid-edit.
             if !isEdited {

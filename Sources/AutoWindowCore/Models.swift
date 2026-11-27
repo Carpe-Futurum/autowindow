@@ -89,14 +89,24 @@ public struct Layout: Codable, Hashable, Sendable {
         self.updatedAt = updatedAt
     }
 
-    /// Updates this layout with a fresh capture. Apps in `fresh` replace their old records;
-    /// apps not running now keep their remembered windows, so quitting an app doesn't forget it.
+    /// Updates this layout with a fresh capture. Apps in `fresh` replace their old records.
+    /// Apps not running now keep their remembered windows, so quitting an app doesn't forget it; so do
+    /// running apps with no window in `fresh` (all closed or minimized), so closing a window doesn't either.
     public func merging(_ fresh: Layout, runningBundleIDs: Set<String>) -> Layout {
-        let kept = windows.filter { !runningBundleIDs.contains($0.bundleID) }
+        let open = Set(fresh.windows.map(\.bundleID))
+        let kept = windows.filter { !runningBundleIDs.contains($0.bundleID) || !open.contains($0.bundleID) }
         var result = fresh
         result.name = name
-        // Kept records carry IDs from an older capture; they're from apps not running, so the IDs are dead anyway.
+        // Kept records carry IDs from an older capture: dead for apps not running, and for the others
+        // the window was closed or will be matched by title or order.
         result.windows = kept.map { var r = $0; r.windowID = nil; return r } + fresh.windows
+        return result
+    }
+
+    /// The layout without the windows of the given apps (apps the user told AutoWindow to ignore).
+    public func removing(bundleIDs: Set<String>) -> Layout {
+        var result = self
+        result.windows.removeAll { bundleIDs.contains($0.bundleID) }
         return result
     }
 

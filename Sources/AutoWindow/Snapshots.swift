@@ -23,6 +23,7 @@ enum Snapshots {
     }
 
     struct Report {
+        var opened = 0
         var placed = 0
         var movedDesktop = 0
         var revealed = 0
@@ -32,6 +33,7 @@ enum Snapshots {
 
         var summary: String {
             var parts = ["placed \(placed) windows"]
+            if opened > 0 { parts.append("opened \(opened) apps") }
             if movedDesktop > 0 { parts.append("\(movedDesktop) moved to another desktop") }
             if revealed > 0 { parts.append("\(revealed) brought back from minimized or hidden") }
             if notFound > 0 { parts.append("\(notFound) not found (closed or unreachable)") }
@@ -55,19 +57,48 @@ enum Snapshots {
         EventLog.write("revealed \(apps.count) hidden apps, \(windows.count) minimized windows (\(windows.filter { $0.window.isMinimized }.count) still minimized)")
     }
 
+    /// Opens the apps that aren't running, in the background, and waits until each has a window up
+    /// (10 seconds at most; holding Esc ends the wait). Returns how many were opened.
+    private static func openMissingApps(_ bundleIDs: Set<String>) async -> Int {
+        let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+        var opened = Set<String>()
+        for id in bundleIDs.subtracting(running).sorted() {
+            guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) else { continue }
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = false
+            configuration.addsToRecentItems = false
+            if (try? await NSWorkspace.shared.openApplication(at: url, configuration: configuration)) != nil { opened.insert(id) }
+        }
+        guard !opened.isEmpty else { return 0 }
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline, !SpaceMover.escapeHeld() {
+            try? await Task.sleep(for: .milliseconds(500))
+            let withWindows = Set(await WindowManager.catalog().entries.map(\.bundleID))
+            if opened.isSubset(of: withWindows) { break }
+        }
+        try? await Task.sleep(for: .milliseconds(500)) // apps often size their first window a moment after showing it
+        EventLog.write("opened \(opened.count) apps that weren't running: \(opened.sorted().joined(separator: ", "))")
+        return opened.count
+    }
+
     /// Puts every open window back on its saved display, desktop, position and size, then shows the
     /// desktops that were showing at capture. Windows change desktop by being dragged while the desktop
     /// switches, so the screen visibly flips through desktops while this runs; the pointer is put back after.
     /// Holding Esc stops it after the window being moved.
-    static func restore(_ layout: Layout) async -> Report {
+    /// `openMissing`: first open the layout's apps that aren't running, so their windows can be placed too.
+    static func restore(_ layout: Layout, openMissing: Bool = false) async -> Report {
         var report = Report()
         SpaceMover.cancelled = false
+        // Ignored apps are left alone, and don't count as "not found".
+        let records = layout.recordsForMatching(session: BootSession.current)
+            .filter { !WindowManager.userIgnored.contains($0.bundleID) }
+        if openMissing { report.opened = await openMissingApps(Set(records.map(\.bundleID))) }
         let displays = Dictionary(Displays.current().map { ($0.uuid, $0) }, uniquingKeysWith: { a, _ in a })
         let catalog = await WindowManager.catalog(includeOutOfSight: true).entries
         let desktops = Set(Spaces.displays().flatMap(\.desktops))
         let live = catalog.map { LiveWindowInfo(bundleID: $0.bundleID, title: $0.title, index: $0.index, windowID: $0.id) }
-        let pairs = Matcher.match(records: layout.recordsForMatching(session: BootSession.current), live: live)
-        report.notFound = layout.windows.count - pairs.count
+        let pairs = Matcher.match(records: records, live: live)
+        report.notFound = records.count - pairs.count
         let pointer = CGEvent(source: nil)?.location
         let startCurrent = Dictionary(Spaces.displays().map { ($0.uuid, $0.current) }, uniquingKeysWith: { a, _ in a })
 
