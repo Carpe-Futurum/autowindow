@@ -5,3 +5,6 @@ build/
 DerivedData/
 .DS_Store
 dist/
+
+# Marketing material lives in the private Carpe-Futurum/autowindow-marketing repo, never here.
+/marketing/
