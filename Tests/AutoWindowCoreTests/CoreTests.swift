@@ -213,3 +213,19 @@ private func editLayout() -> Layout {
     let fresh = Layout(signature: "s", name: "auto", displays: [laptop], windows: [])
     #expect(old.merging(fresh, runningBundleIDs: []).windows.first?.windowID == nil)
 }
+
+@Test func mergeKeepsWindowsOfRunningAppsWithNoneOpen() {
+    func rec(_ app: String, _ title: String) -> WindowRecord {
+        WindowRecord(bundleID: app, appName: app, title: title, index: 0, displayUUID: "A", relativeFrame: .zero, windowID: 3)
+    }
+    let old = Layout(signature: "s", name: "Desk", displays: [laptop], windows: [rec("closed", "kept"), rec("open", "old")])
+    let fresh = Layout(signature: "s", name: "auto", displays: [laptop], windows: [rec("open", "new")])
+    let merged = old.merging(fresh, runningBundleIDs: ["closed", "open"])
+    #expect(Set(merged.windows.map(\.title)) == ["kept", "new"])
+    #expect(merged.windows.first { $0.title == "kept" }?.windowID == nil)
+}
+
+@Test func removingDropsIgnoredApps() {
+    let l = editLayout().removing(bundleIDs: ["a"])
+    #expect(l.windows.map(\.bundleID) == ["b"])
+}

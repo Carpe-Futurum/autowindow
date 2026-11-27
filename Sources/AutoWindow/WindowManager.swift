@@ -13,10 +13,13 @@ enum WindowManager {
         "com.apple.WindowManager",
     ]
 
+    /// Apps the user chose to ignore (kept in step with the setting by `AppModel`).
+    static var userIgnored: Set<String> = []
+
     static func regularApps() -> [NSRunningApplication] {
         NSWorkspace.shared.runningApplications.filter {
             $0.activationPolicy == .regular && !$0.isTerminated
-                && $0.bundleIdentifier.map { !ignoredBundleIDs.contains($0) } == true
+                && $0.bundleIdentifier.map { !ignoredBundleIDs.contains($0) && !userIgnored.contains($0) } == true
         }
     }
 

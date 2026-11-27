@@ -29,7 +29,7 @@ AutoWindow does two separate jobs. They share the idea of "put windows back", bu
 | What it is | The app's own memory of where windows sit for the monitors connected now | A named save you make of your whole setup |
 | Who saves it | The app, every 30 seconds | You, with ⌘S |
 | How many | One per set of monitors | As many as you like |
-| When windows go back | By itself: when monitors change, on wake, when an app opens | When you pick the snapshot from the menu |
+| When windows go back | By itself: when monitors change, on wake, when an app opens | When you click the snapshot in the menu |
 | Desktops (Spaces) | Left alone: a window stays on the desktop it's on | Restored: each window goes back to its desktop |
 | Good for | Docking and undocking without re-arranging | Switching between setups, such as "Deep work" and "Calls" |
 
@@ -41,7 +41,8 @@ You can use either without the other.
   connected displays (laptop only, laptop + one monitor, the full desk…). When displays change (dock or
   undock, monitor on or off, wake from sleep) it puts every window back. When an app launches, its windows go
   to their remembered place. The layout updates itself every 30 seconds and covers windows on every desktop
-  (they keep the desktop they're on; only snapshots move windows between desktops).
+  (they keep the desktop they're on; only snapshots move windows between desktops). Closing a window or
+  quitting an app doesn't forget its place.
 
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/automatic-dark.svg">
@@ -51,7 +52,18 @@ You can use either without the other.
 - **Snapshots with desktops (Spaces).** Press ⌘S in the menu to save a named snapshot of the open windows on
   every display *and* every desktop (minimized and full-screen windows are left out when saving). Restoring brings saved windows back out of the Dock if you minimized them since, shows apps you hid since, and moves each window back to its display, desktop, position and size,
   and shows the desktops that were showing when you saved. A snapshot is also taken shortly after AutoWindow
-  starts.
+  starts. Click a snapshot in the menu to restore it; with **Open Missing Apps When Restoring** on, apps in the
+  snapshot that aren't running are opened first.
+
+- **Undo.** After a restore you asked for (a snapshot, Put Windows Back Now, or Apply in the editor),
+  **Undo Last Restore** in the menu moves the windows back to where they were.
+
+- **Ignored apps.** Tick an app under **Settings → Ignored Apps** and AutoWindow leaves its windows alone: not
+  remembered, not put back, not in new snapshots.
+
+- **A welcome window that explains itself.** On first launch (and under **How AutoWindow Works…**) a window says
+  what the app does and shows a checklist of the macOS settings it needs: what's already right, and a button
+  that opens the right settings pane for what isn't.
 
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/snapshots-dark.svg">
@@ -80,7 +92,7 @@ You can use either without the other.
   open "autowindow://snapshot/restore?name=Desk"
   ```
 
-  Links are **off by default**, because any app or web page can open one; turn on **Allow Control by
+  Links are **off by default**, because any app or web page can open one; turn on **Settings → Allow Control by
   autowindow:// Links** in the menu to use them. The switch keeps web pages and stray links out. It is not a
   barrier against other software already running under your account, which can change the setting itself.
   Links are limited to one every two seconds. Without a name, restore picks the newest snapshot for the
@@ -102,16 +114,19 @@ cd autowindow
 scripts/build-app.sh --install --run
 ```
 
-This builds `AutoWindow.app`, copies it to `/Applications` and starts it. A window icon appears in the menu bar.
-Turn on **Launch at Login** in its menu to keep it running.
+This builds `AutoWindow.app`, copies it to `/Applications` and starts it. A window icon appears in the menu bar,
+and a welcome window walks you through setup.
 
 ## Setup
 
+The welcome window (**How AutoWindow Works…** in the menu) shows these steps with their current state and a
+button for each. If you only use one desktop per monitor, step 1 is all there is.
+
 ### 1. Accessibility permission (required)
 
-AutoWindow moves windows through the macOS Accessibility API. On first launch it asks for access:
-**System Settings → Privacy & Security → Accessibility → AutoWindow**. The menu shows a "Grant Accessibility
-Access…" item until it's on.
+AutoWindow moves windows through the macOS Accessibility API. On first launch the welcome window asks for
+access: **System Settings → Privacy & Security → Accessibility → AutoWindow**. The menu shows a "Grant
+Accessibility Access…" item until it's on.
 
 ### 2. Stop macOS from rearranging desktops (for snapshots with several desktops)
 
@@ -140,36 +155,50 @@ each rebuild.
 
 ## Using it
 
-The menu has two groups, matching the two jobs.
+The menu holds what you do day to day; switches you set once are under **Settings**.
 
-**Snapshots — saved by you, desktops included**
+**Snapshots — click one to restore it**
 
 | Menu item | What it does |
 | --- | --- |
+| *snapshot name* (⌘1–⌘9) | Put every window back as saved (the screen flips through desktops briefly) |
 | Save Snapshot… (⌘S) | Name and save every open window on every display and desktop |
-| *snapshot name* → Restore | Put every window back as saved (the screen flips through desktops briefly) |
-| *snapshot name* → Rename… / Delete… | Rename it, or delete it after a confirmation |
-| For Other Monitors | Snapshots saved with a different set of monitors |
+| Manage Snapshots → *name* → Update to Current Windows… | Replace the snapshot with the windows as they are now, keeping its name |
+| Manage Snapshots → *name* → Rename… / Delete… | Rename it, or delete it after a confirmation |
 
-**Automatic — for these monitors, no desktops**
+Snapshots saved with a different set of monitors are listed under Manage Snapshots, marked "(other monitors)".
+
+**Automatic — for these monitors**
 
 | Menu item | What it does |
 | --- | --- |
 | *N windows remembered · updated 15:02* | What the app currently remembers for the connected monitors |
 | Put Windows Back Now (⌘R) | Move open windows to their remembered positions |
-| Remember Positions as I Work | Update the remembered positions every 30 s |
-| Remember Positions Now | Shown only when the switch above is off: update them once |
-| Put Windows Back When Monitors Change | Do it automatically on dock/undock, monitor changes and wake |
-| Place an App's Windows When It Opens | Put an app's windows in their remembered place when it starts |
+| Remember Positions Now | Shown only when "Remember Positions as I Work" is off: update them once |
 
 **Everything else**
 
 | Menu item | What it does |
 | --- | --- |
-| Show Layouts & Snapshots… (⌘L) | Open the visual editor |
+| Undo Last Restore (⌘Z) | Shown after a restore you asked for: move the windows back to where they were |
+| Edit Layouts & Snapshots… (⌘L) | Open the visual editor |
+| How AutoWindow Works… | The welcome window: what the app does and the setup checklist |
+| About AutoWindow | The version |
+
+**Settings**
+
+| Menu item | What it does |
+| --- | --- |
+| Remember Positions as I Work | Update the remembered positions every 30 s |
+| Put Windows Back When Monitors Change | Do it automatically on dock/undock, monitor changes and wake |
+| Place an App's Windows When It Opens | Put an app's windows in their remembered place when it starts |
+| Open Missing Apps When Restoring | Before a snapshot restore, open its apps that aren't running (off by default) |
 | Allow Control by autowindow:// Links | Let links save and restore snapshots (off by default) |
+| Ignored Apps | Tick apps whose windows AutoWindow should leave alone |
 | Launch at Login | Start AutoWindow when you log in |
 | Show Data Folder | Open the folder with the saved layouts and snapshots |
+
+The shortcuts work while the menu is open.
 
 ## How desktops (Spaces) work
 
@@ -187,7 +216,8 @@ Limitations:
   window is frontmost there. It then checks the window really follows the mouse before switching desktop. If
   it can't get hold (a sheet is open, another window floats on top, the app draws its own title bar), that
   window keeps its desktop and the result says so.
-- Only open windows are placed. AutoWindow doesn't launch apps or reopen windows; a restore reports how many
+- Only open windows are placed. AutoWindow doesn't reopen closed windows, and opens apps only with **Open
+  Missing Apps When Restoring** on (it waits up to 10 seconds for their windows). A restore reports how many
   saved windows it couldn't find (closed, or their app didn't answer).
 - Finding windows on desktops that aren't showing is best effort: an app that is busy at that moment can be
   missed for that capture.
@@ -228,6 +258,7 @@ Nothing leaves your Mac.
 | Snapshot capture and restore, moving windows between desktops | `Sources/AutoWindow/Snapshots.swift` |
 | Automatic layout capture and restore | `Sources/AutoWindow/WindowManager.swift` |
 | Events, autosave, settings, `autowindow://` links | `Sources/AutoWindow/AppModel.swift` |
+| Menu, welcome window and setup checklist | `Sources/AutoWindow/AutoWindowApp.swift`, `GuideWindow.swift` |
 | Layouts & Snapshots window and editor | `Sources/AutoWindow/LayoutsWindow.swift`, `LayoutPreview.swift` |
 | Models, matching, geometry, editing and snapping, JSON store (no AppKit; unit-tested) | `Sources/AutoWindowCore/` |
 
@@ -249,6 +280,7 @@ swift test                      # core logic tests (AutoWindowCore)
 scripts/build-app.sh            # build/AutoWindow.app
 scripts/build-app.sh --run      # build and launch
 scripts/build-app.sh --install  # also copy to /Applications
+swift scripts/make-icon.swift   # redraw Resources/AppIcon.icns
 scripts/release.sh              # universal, signed, notarized zip in dist/ (needs a Developer ID and notary credentials)
 ```
 
@@ -256,7 +288,7 @@ It's a plain Swift package with no Xcode project; `scripts/build-app.sh` wraps t
 
 ## Roadmap
 
-- Per-app exclusions in the UI
+- Global keyboard shortcuts for snapshots
 - Creating missing desktops
 
 ## Contributing

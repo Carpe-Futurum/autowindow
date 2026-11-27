@@ -19,6 +19,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/AutoWindow"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # Hardened runtime (needed for notarization) whenever there's a real identity.
 if [ "$IDENTITY" = "-" ]; then
   codesign --force --sign - --identifier nl.carpefuturum.autowindow "$APP"

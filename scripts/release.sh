@@ -22,6 +22,7 @@ rm -rf dist
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/AutoWindow"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # Hardened runtime and a secure timestamp are both required for notarization.
 codesign --force --sign "$IDENTITY" --options runtime --timestamp --identifier nl.carpefuturum.autowindow "$APP"
 codesign --verify --strict --verbose=2 "$APP"
