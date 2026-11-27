@@ -167,7 +167,9 @@ which shortcuts are missing.
 ### 4. Coming from Magnet or Rectangle
 
 Quit it and remove it from Login Items (System Settings → General → Login Items). Both apps answer the same
-⌃⌥ keys and both show a list on the green button, so with two running you can't tell which one acts.
+⌃⌥ keys and both show a list on the green button, so with two running you can't tell which one acts. The welcome
+window's checklist shows it when one is running (Magnet, Rectangle, Moom, Spectacle, BetterSnapTool, Divvy, Amethyst,
+Loop, Swish), with a button to quit it, and lists any snap shortcut another app already holds.
 
 ### Signing and rebuilds
 
@@ -208,8 +210,8 @@ in place of macOS's own menu there; a click on a row snaps that window.
 | Use These Shortcuts Everywhere | | The shortcuts work in every app, without opening the menu (on by default) |
 | Show This List on the Green Button | | The green-button list (on by default) |
 
-The shortcuts need no permission beyond Accessibility. If Magnet is running it answers the same keys, and the
-menu offers to quit it.
+The shortcuts need no permission beyond Accessibility. If another window app such as Magnet or Rectangle is
+running it answers the same keys, and the menu offers to quit it.
 
 **Automatic — for these monitors**
 

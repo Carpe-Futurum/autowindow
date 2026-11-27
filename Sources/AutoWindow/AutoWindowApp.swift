@@ -58,8 +58,10 @@ struct MenuContent: View {
         }
 
         Menu("Snap Front Window") {
-            if model.magnetRunning && model.snapShortcuts {
-                Button("Magnet Uses the Same Shortcuts — Quit Magnet") { model.quitMagnet() }
+            if !model.otherWindowApps.isEmpty && (model.snapShortcuts || model.greenButtonPanel) {
+                Button("Quit \(model.otherWindowApps.formatted(.list(type: .and))): It Answers the Same Keys") {
+                    model.quitOtherWindowApps()
+                }
                 Divider()
             }
             ForEach(snapGroups, id: \.self) { group in

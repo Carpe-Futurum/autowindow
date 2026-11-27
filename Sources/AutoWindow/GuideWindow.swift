@@ -106,6 +106,8 @@ private struct GuideView: View {
                      button: nil) {}
             }
 
+            if model.snapShortcuts || model.greenButtonPanel { windowAppStep }
+
             Toggle(isOn: $model.launchAtLogin) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Start AutoWindow when you log in")
@@ -117,7 +119,33 @@ private struct GuideView: View {
         }
     }
 
-    private func step(done: Bool, required: Bool, title: String, detail: String, button: String?,
+    /// Another window app (Magnet, Rectangle…) answers the same keys and the green button. Named apps are
+    /// recognised by bundle id; anything else shows up as shortcuts macOS wouldn't give AutoWindow.
+    @ViewBuilder private var windowAppStep: some View {
+        let others = model.otherWindowApps
+        let taken = Snapper.takenShortcuts
+        if !others.isEmpty {
+            let names = others.formatted(.list(type: .and))
+            step(done: false, required: false, optionalFor: nil,
+                 title: "Only one app snapping windows",
+                 detail: "\(names) \(others.count == 1 ? "is" : "are") running. \(others.count == 1 ? "It answers" : "They answer") the same ⌃⌥ shortcuts and the green button, so you can't tell which app acts. Quit \(others.count == 1 ? "it" : "them"), and remove \(others.count == 1 ? "it" : "them") from Login Items so \(others.count == 1 ? "it doesn't" : "they don't") come back.",
+                 button: "Quit \(names)") { model.quitOtherWindowApps() }
+        } else if !taken.isEmpty {
+            let keys = taken.map(Snapper.shortcutLabel).joined(separator: " ")
+            step(done: false, required: false, optionalFor: nil,
+                 title: "Only one app snapping windows",
+                 detail: "Another app already uses \(taken.count == 1 ? "this shortcut" : "these shortcuts"), so \(taken.count == 1 ? "it does" : "they do") nothing in AutoWindow: \(keys). Turn \(taken.count == 1 ? "it" : "them") off in that app, or quit it.",
+                 button: nil) {}
+        } else {
+            step(done: true, required: false, optionalFor: nil,
+                 title: "Only one app snapping windows",
+                 detail: "No other window app is running. The ⌃⌥ shortcuts and the green-button list are AutoWindow's. If you used one before, remove it from Login Items.",
+                 button: "Open Login Items…") { model.openLoginItems() }
+        }
+    }
+
+    private func step(done: Bool, required: Bool, optionalFor: String? = "for snapshots with several desktops",
+                      title: String, detail: String, button: String?,
                       action: @escaping () -> Void) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: done ? "checkmark.circle.fill" : (required ? "exclamationmark.circle.fill" : "circle.dashed"))
@@ -125,7 +153,7 @@ private struct GuideView: View {
                 .foregroundStyle(done ? Color.green : (required ? Color.orange : Color.secondary))
                 .frame(width: 20)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title + (required || done ? "" : " (for snapshots with several desktops)"))
+                Text(title + (required || done ? "" : optionalFor.map { " (\($0))" } ?? ""))
                 Text(detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
