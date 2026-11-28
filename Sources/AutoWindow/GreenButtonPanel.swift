@@ -10,14 +10,20 @@ import SwiftUI
 /// asks Accessibility what is under it, and shows a panel of its own that never takes focus.
 @MainActor
 enum GreenButtonPanel {
-    /// Shorter than macOS waits before its own menu, so the cover is up first and that menu never opens.
+    /// How long the pointer rests on the button before the list opens. The cover goes up at once, so macOS's
+    /// own menu never gets its turn however long this is.
     static let hoverDelay: TimeInterval = 0.25
+    /// How often to ask Accessibility what is under a moving pointer.
+    private static let checkInterval: TimeInterval = 0.05
 
     private static var monitor: Any?
-    private static var pending: DispatchWorkItem?
+    private static var trailing: DispatchWorkItem?
+    private static var lastCheck: TimeInterval = 0
     private static var panel: NSPanel?
     /// A see-through window over the green button. With it there, the app sees the pointer leave its button,
     /// so macOS doesn't open its own, shorter menu: the list replaces it, as in Magnet.
+    /// It goes up the moment the pointer reaches the button: waiting for the pointer to rest first let macOS
+    /// open its menu too, in apps slow to answer Accessibility or when the pointer kept drifting.
     /// A click on it still does what the green button does.
     private static var cover: NSPanel?
     private static var poll: Timer?
@@ -34,20 +40,27 @@ enum GreenButtonPanel {
         }
     }
 
+    /// Checks right away, at most every `checkInterval`, plus once after the pointer stops.
     private static func pointerMoved() {
-        guard panel == nil else { return } // the poll handles a visible panel
-        pending?.cancel()
-        let work = DispatchWorkItem { MainActor.assumeIsolated { checkUnderPointer() } }
-        pending = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + hoverDelay, execute: work)
+        guard cover == nil else { return } // the poll handles a covered button
+        trailing?.cancel()
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - lastCheck >= checkInterval {
+            lastCheck = now
+            checkUnderPointer()
+            return
+        }
+        let work = DispatchWorkItem { MainActor.assumeIsolated { lastCheck = ProcessInfo.processInfo.systemUptime; checkUnderPointer() } }
+        trailing = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + checkInterval, execute: work)
     }
 
     private static func checkUnderPointer() {
-        guard AXWindow.isTrusted, panel == nil,
+        guard AXWindow.isTrusted, cover == nil,
               let primaryHeight = NSScreen.screens.first?.frame.height else { return }
         let mouse = NSEvent.mouseLocation
         let system = AXUIElementCreateSystemWide()
-        AXUIElementSetMessagingTimeout(system, 0.3)
+        AXUIElementSetMessagingTimeout(system, 0.1)
         var hit: AXUIElement?
         guard AXUIElementCopyElementAtPosition(system, Float(mouse.x), Float(primaryHeight - mouse.y), &hit) == .success,
               let hit, isGreenButton(hit),
@@ -60,7 +73,8 @@ enum GreenButtonPanel {
         guard window.isStandard, let button = frameOf(hit) else { return }
         // AX top-left to AppKit bottom-left.
         buttonRect = CGRect(x: button.minX, y: primaryHeight - button.maxY, width: button.width, height: button.height)
-        show(for: window, button: hit)
+        guard buttonRect.insetBy(dx: -2, dy: -2).contains(NSEvent.mouseLocation) else { return }
+        showCover(for: window, button: hit)
     }
 
     /// Windows that can go full screen report the green button as a full-screen button.
@@ -71,7 +85,37 @@ enum GreenButtonPanel {
 
     // MARK: - Panel
 
-    private static func show(for window: AXWindow, button: AXUIElement) {
+    private static func showCover(for window: AXWindow, button: AXUIElement) {
+        let c = makePanel(CGRect(origin: .zero, size: buttonRect.size))
+        c.backgroundColor = NSColor(white: 0, alpha: 0.001) // fully clear windows let clicks through
+        c.hasShadow = false
+        c.contentView = ClickCatcher { hide(); AXUIElementPerformAction(button, kAXPressAction as CFString) }
+        c.setFrame(buttonRect, display: false)
+        c.orderFrontRegardless()
+        cover = c
+
+        // The pointer is over our own window now, so the global monitor hears nothing: poll instead.
+        // Open the list once the pointer has rested on the button; close everything once it has left
+        // both the button and the list for a moment.
+        let coveredAt = ProcessInfo.processInfo.systemUptime
+        var away = 0
+        poll = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                let m = NSEvent.mouseLocation
+                guard let panel else {
+                    if !buttonRect.insetBy(dx: -2, dy: -2).contains(m) { hide() }
+                    else if ProcessInfo.processInfo.systemUptime - coveredAt >= hoverDelay { showPanel(for: window) }
+                    return
+                }
+                // The gap between button and panel counts as "on it", so moving across doesn't close it.
+                let zone = panel.frame.union(buttonRect).insetBy(dx: -6, dy: -6)
+                away = zone.contains(m) ? 0 : away + 1
+                if away >= 6 { hide() }
+            }
+        }
+    }
+
+    private static func showPanel(for window: AXWindow) {
         let multipleDisplays = NSScreen.screens.count > 1
         let view = SnapPalette(showDisplayMoves: multipleDisplays) { action in
             hide()
@@ -92,27 +136,6 @@ enum GreenButtonPanel {
         p.setFrameOrigin(origin)
         p.orderFrontRegardless()
         panel = p
-
-        let c = makePanel(CGRect(origin: .zero, size: buttonRect.size))
-        c.backgroundColor = NSColor(white: 0, alpha: 0.001) // fully clear windows let clicks through
-        c.hasShadow = false
-        c.contentView = ClickCatcher { hide(); AXUIElementPerformAction(button, kAXPressAction as CFString) }
-        c.setFrame(buttonRect, display: false)
-        c.orderFrontRegardless()
-        cover = c
-
-        // Close once the pointer has left both the button and the panel for a moment.
-        var away = 0
-        poll = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-            MainActor.assumeIsolated {
-                guard let panel else { return }
-                let m = NSEvent.mouseLocation
-                // The gap between button and panel counts as "on it", so moving across doesn't close it.
-                let zone = panel.frame.union(buttonRect).insetBy(dx: -6, dy: -6)
-                away = zone.contains(m) ? 0 : away + 1
-                if away >= 3 { hide() }
-            }
-        }
     }
 
     private static func makePanel(_ rect: CGRect) -> NSPanel {
@@ -129,6 +152,8 @@ enum GreenButtonPanel {
     }
 
     private static func hide() {
+        trailing?.cancel()
+        trailing = nil
         poll?.invalidate()
         poll = nil
         cover?.orderOut(nil)
